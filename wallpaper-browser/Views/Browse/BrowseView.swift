@@ -7,80 +7,89 @@ struct BrowseView: View {
   let showSettings: () -> Void
 
   @State private var isShowingFilters = false
+  @State private var selectedItem: WorkshopItem?
 
   private let columns = [
     GridItem(.adaptive(minimum: 210, maximum: 280), spacing: 14, alignment: .top)
   ]
 
   var body: some View {
-    VStack(spacing: 0) {
-      if !viewModel.filters.isDefault {
-        ActiveFiltersBar(viewModel: viewModel)
-        Divider()
-      }
-
-      content
-    }
-    .navigationTitle("创意工坊")
-    .searchable(text: $viewModel.searchText, prompt: "搜索视频壁纸")
-    .onChange(of: viewModel.searchText) { _, _ in
-      viewModel.scheduleSearch()
-    }
-    .onChange(of: viewModel.sortOrder) { _, _ in
-      viewModel.refresh()
-    }
-    .onReceive(NotificationCenter.default.publisher(for: .apiKeyDidChange)) { _ in
-      viewModel.refresh()
-    }
-    .task {
-      if viewModel.items.isEmpty { viewModel.refresh() }
-    }
-    .toolbar {
-      ToolbarItemGroup {
-        Menu {
-          Picker("排序", selection: $viewModel.sortOrder) {
-            ForEach(WorkshopSortOrder.allCases) { order in
-              Text(order.title).tag(order)
-            }
-          }
-        } label: {
-          Label(viewModel.sortOrder.title, systemImage: "arrow.up.arrow.down")
+    NavigationStack {
+      VStack(spacing: 0) {
+        if !viewModel.filters.isDefault {
+          ActiveFiltersBar(viewModel: viewModel)
+          Divider()
         }
-        .help("排序")
 
-        Button {
-          isShowingFilters.toggle()
-        } label: {
-          Image(systemName: "line.3.horizontal.decrease")
-            .overlay(alignment: .topTrailing) {
-              if viewModel.filters.activeCount > 0 {
-                Text("\(viewModel.filters.activeCount)")
-                  .font(.system(size: 8, weight: .bold))
-                  .foregroundStyle(.white)
-                  .frame(minWidth: 13, minHeight: 13)
-                  .background(Color.accentColor, in: Circle())
-                  .offset(x: 7, y: -6)
+        content
+      }
+      .navigationTitle("创意工坊")
+      .searchable(text: $viewModel.searchText, prompt: "搜索视频壁纸")
+      .onChange(of: viewModel.searchText) { _, _ in
+        viewModel.scheduleSearch()
+      }
+      .onChange(of: viewModel.sortOrder) { _, _ in
+        viewModel.refresh()
+      }
+      .onReceive(NotificationCenter.default.publisher(for: .apiKeyDidChange)) { _ in
+        viewModel.refresh()
+      }
+      .task {
+        if viewModel.items.isEmpty { viewModel.refresh() }
+      }
+      .navigationDestination(item: $selectedItem) { item in
+        WorkshopDetailView(
+          item: item,
+          download: { requestDownload(item) }
+        )
+      }
+      .toolbar {
+        ToolbarItemGroup {
+          Menu {
+            Picker("排序", selection: $viewModel.sortOrder) {
+              ForEach(WorkshopSortOrder.allCases) { order in
+                Text(order.title).tag(order)
               }
             }
-        }
-        .help("筛选")
-        .popover(isPresented: $isShowingFilters, arrowEdge: .bottom) {
-          FilterPopover(
-            filters: viewModel.filters,
-            onCancel: { isShowingFilters = false },
-            onApply: {
-              viewModel.applyFilters($0)
-              isShowingFilters = false
-            }
-          )
-        }
+          } label: {
+            Label(viewModel.sortOrder.title, systemImage: "arrow.up.arrow.down")
+          }
+          .help("排序")
 
-        Button {
-          viewModel.refresh()
-        } label: {
-          Image(systemName: "arrow.clockwise")
+          Button {
+            isShowingFilters.toggle()
+          } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+              .overlay(alignment: .topTrailing) {
+                if viewModel.filters.activeCount > 0 {
+                  Text("\(viewModel.filters.activeCount)")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(minWidth: 13, minHeight: 13)
+                    .background(Color.accentColor, in: Circle())
+                    .offset(x: 7, y: -6)
+                }
+              }
+          }
+          .help("筛选")
+          .popover(isPresented: $isShowingFilters, arrowEdge: .bottom) {
+            FilterPopover(
+              filters: viewModel.filters,
+              onCancel: { isShowingFilters = false },
+              onApply: {
+                viewModel.applyFilters($0)
+                isShowingFilters = false
+              }
+            )
+          }
+
+          Button {
+            viewModel.refresh()
+          } label: {
+            Image(systemName: "arrow.clockwise")
+          }
+          .help("刷新")
         }
-        .help("刷新")
       }
     }
   }
@@ -118,6 +127,7 @@ struct BrowseView: View {
           ForEach(viewModel.items) { item in
             WorkshopGridItem(
               item: item,
+              showDetails: { selectedItem = item },
               download: { requestDownload(item) }
             )
           }

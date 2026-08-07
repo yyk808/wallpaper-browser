@@ -9,7 +9,7 @@ private enum SettingsDestination: String, Hashable {
 
 struct SettingsView: View {
   @EnvironmentObject private var steamCMD: SteamCMDService
-  @State private var selection: SettingsDestination? = .workshop
+  @State private var selection: SettingsDestination = .workshop
   @State private var apiKey = ""
   @State private var apiKeyMessage: String?
   @State private var apiKeySaved = false
@@ -17,8 +17,8 @@ struct SettingsView: View {
   @State private var copiedInstallCommand = false
 
   var body: some View {
-    NavigationSplitView {
-      List(selection: $selection) {
+    VStack(spacing: 0) {
+      Picker("设置分类", selection: $selection) {
         Label("创意工坊", systemImage: "key.horizontal")
           .tag(SettingsDestination.workshop)
         Label("Steam", systemImage: "gamecontroller")
@@ -26,10 +26,15 @@ struct SettingsView: View {
         Label("存储", systemImage: "externaldrive")
           .tag(SettingsDestination.storage)
       }
-      .navigationTitle("设置")
-      .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 200)
-    } detail: {
-      switch selection ?? .workshop {
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      .frame(width: 430)
+      .padding(.horizontal, 24)
+      .padding(.vertical, 14)
+
+      Divider()
+
+      switch selection {
       case .workshop:
         workshopPane
       case .steam:
@@ -38,7 +43,6 @@ struct SettingsView: View {
         storagePane
       }
     }
-    .navigationSplitViewStyle(.balanced)
     .frame(minWidth: 720, minHeight: 480)
     .onAppear {
       apiKey = CredentialStore.shared.loadAPIKey()
@@ -308,7 +312,6 @@ private struct SettingsPane<Content: View>: View {
       .padding(28)
       .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .navigationTitle(title)
     .background(Color(nsColor: .windowBackgroundColor))
   }
 }

@@ -4,6 +4,7 @@ enum WorkshopAPIError: LocalizedError {
   case missingAPIKey
   case invalidAPIKey
   case invalidResponse
+  case commentsUnavailable
   case httpStatus(Int)
 
   var errorDescription: String? {
@@ -11,6 +12,7 @@ enum WorkshopAPIError: LocalizedError {
     case .missingAPIKey: "需要先在设置中填写 Steam Web API Key。"
     case .invalidAPIKey: "Steam Web API Key 无效，请检查后重试。"
     case .invalidResponse: "Steam 返回了无法识别的数据。"
+    case .commentsUnavailable: "这件作品暂时无法读取评论。"
     case .httpStatus(let status): "Steam 服务请求失败（HTTP \(status)）。"
     }
   }
@@ -106,6 +108,43 @@ nonisolated struct WorkshopAPIClient: Sendable {
       }
     return WorkshopPage(items: items, totalCount: payload.response.total)
   }
+
+  func fetchComments(
+    for item: WorkshopItem,
+    offset: Int,
+    count: Int = 10
+  ) async throws -> WorkshopCommentsPage {
+    guard let creatorSteamID = item.creatorSteamID, !creatorSteamID.isEmpty else {
+      throw WorkshopAPIError.commentsUnavailable
+    }
+
+    var components = URLComponents(
+      string:
+        "https://steamcommunity.com/comment/PublishedFile_Public/render/\(creatorSteamID)/\(item.id)/"
+    )!
+    components.queryItems = [
+      URLQueryItem(name: "start", value: String(offset)),
+      URLQueryItem(name: "count", value: String(count)),
+    ]
+    guard let url = components.url else { throw WorkshopAPIError.invalidResponse }
+
+    let (data, response) = try await session.data(from: url)
+    guard let httpResponse = response as? HTTPURLResponse else {
+      throw WorkshopAPIError.invalidResponse
+    }
+    guard httpResponse.statusCode == 200 else {
+      throw WorkshopAPIError.httpStatus(httpResponse.statusCode)
+    }
+
+    let payload = try JSONDecoder().decode(CommentRenderResponse.self, from: data)
+    guard payload.success else { throw WorkshopAPIError.commentsUnavailable }
+    let comments = try SteamCommentHTMLParser.parse(payload.commentsHTML)
+    return WorkshopCommentsPage(
+      comments: comments,
+      totalCount: payload.totalCount,
+      nextOffset: offset + count
+    )
+  }
 }
 
 private struct QueryEnvelope: Decodable {
@@ -134,6 +173,7 @@ private struct QueryResponse: Decodable {
 
 private struct WorkshopFileDTO: Decodable {
   let id: String
+  let creatorSteamID: String?
   let title: String
   let summary: String
   let previewURL: URL?
@@ -143,6 +183,7 @@ private struct WorkshopFileDTO: Decodable {
 
   enum CodingKeys: String, CodingKey {
     case id = "publishedfileid"
+    case creatorSteamID = "creator"
     case title
     case summary = "short_description"
     case previewURL = "preview_url"
@@ -155,6 +196,7 @@ private struct WorkshopFileDTO: Decodable {
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decode(String.self, forKey: .id)
+    creatorSteamID = try container.decodeIfPresent(String.self, forKey: .creatorSteamID)
     title = try container.decode(String.self, forKey: .title)
     summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
     previewURL = try container.decodeIfPresent(String.self, forKey: .previewURL)
@@ -170,6 +212,7 @@ private struct WorkshopFileDTO: Decodable {
   var workshopItem: WorkshopItem {
     WorkshopItem(
       id: id,
+      creatorSteamID: creatorSteamID,
       title: title,
       summary: summary,
       previewURL: previewURL,
@@ -177,6 +220,95 @@ private struct WorkshopFileDTO: Decodable {
       subscriptions: subscriptions,
       fileSize: fileSize
     )
+  }
+}
+
+private struct CommentRenderResponse: Decodable {
+  let success: Bool
+  let totalCount: Int
+  let commentsHTML: String
+
+  enum CodingKeys: String, CodingKey {
+    case success
+    case totalCount = "total_count"
+    case commentsHTML = "comments_html"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    if let value = try? container.decode(Bool.self, forKey: .success) {
+      success = value
+    } else {
+      success = container.decodeFlexibleInt(forKey: .success) == 1
+    }
+    totalCount = container.decodeFlexibleInt(forKey: .totalCount) ?? 0
+    commentsHTML = try container.decodeIfPresent(String.self, forKey: .commentsHTML) ?? ""
+  }
+}
+
+private enum SteamCommentHTMLParser {
+  static func parse(_ html: String) throws -> [WorkshopComment] {
+    let documentHTML = "<html><head><meta charset=\"utf-8\"></head><body>\(html)</body></html>"
+    let document = try XMLDocument(xmlString: documentHTML, options: [.documentTidyHTML])
+    let nodes = try document.nodes(
+      forXPath:
+        "//*[contains(concat(' ', normalize-space(@class), ' '), ' commentthread_comment ') and starts-with(@id, 'comment_')]"
+    )
+
+    return nodes.compactMap { node in
+      guard
+        let element = node as? XMLElement,
+        let rawID = element.attribute(forName: "id")?.stringValue,
+        let text = firstString(
+          in: element,
+          xpath:
+            ".//*[contains(concat(' ', normalize-space(@class), ' '), ' commentthread_comment_text ')]"
+        )?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !text.isEmpty
+      else { return nil }
+
+      let author = firstString(
+        in: element,
+        xpath: ".//a[contains(@class, 'commentthread_author_link')]"
+      )?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let timestamp = firstAttribute(
+        in: element,
+        xpath: ".//div[contains(@class, 'commentthread_comment_timestamp') and @data-timestamp]",
+        name: "data-timestamp"
+      ).flatMap(TimeInterval.init)
+      let avatarString =
+        firstAttribute(
+          in: element,
+          xpath: ".//div[contains(@class, 'commentthread_comment_avatar')]//a//img[1]",
+          name: "srcset"
+        )
+        ?? firstAttribute(
+          in: element,
+          xpath: ".//div[contains(@class, 'commentthread_comment_avatar')]//a//img[1]",
+          name: "src"
+        )
+
+      return WorkshopComment(
+        id: String(rawID.dropFirst("comment_".count)),
+        authorName: author?.isEmpty == false ? author! : "Steam 用户",
+        avatarURL: avatarString.flatMap(URL.init(string:)),
+        postedAt: timestamp.map(Date.init(timeIntervalSince1970:)),
+        text: text
+      )
+    }
+  }
+
+  private static func firstString(in element: XMLElement, xpath: String) -> String? {
+    (try? element.nodes(forXPath: xpath).first?.stringValue) ?? nil
+  }
+
+  private static func firstAttribute(
+    in element: XMLElement,
+    xpath: String,
+    name: String
+  ) -> String? {
+    guard let child = try? element.nodes(forXPath: xpath).first as? XMLElement else { return nil }
+    return child.attribute(forName: name)?.stringValue
   }
 }
 

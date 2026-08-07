@@ -3,6 +3,7 @@ import SwiftUI
 
 struct WorkshopGridItem: View {
   let item: WorkshopItem
+  let showDetails: () -> Void
   let download: () -> Void
 
   @EnvironmentObject private var steamCMD: SteamCMDService
@@ -12,9 +13,7 @@ struct WorkshopGridItem: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Button {
-        openWorkshop()
-      } label: {
+      Button(action: showDetails) {
         AsyncImage(url: item.previewURL) { phase in
           switch phase {
           case .success(let image):
@@ -32,12 +31,16 @@ struct WorkshopGridItem: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
       }
       .buttonStyle(.plain)
+      .help("查看详情")
 
       HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Text(item.title)
-          .font(.system(size: 13, weight: .medium))
-          .lineLimit(1)
-          .help(item.title)
+        Button(action: showDetails) {
+          Text(item.title)
+            .font(.system(size: 13, weight: .medium))
+            .lineLimit(1)
+        }
+        .buttonStyle(.plain)
+        .help(item.title)
         Spacer(minLength: 4)
         actionButton
       }
@@ -66,7 +69,7 @@ struct WorkshopGridItem: View {
     )
     .onHover { isHovering = $0 }
     .contextMenu {
-      Button("打开创意工坊", systemImage: "safari") { openWorkshop() }
+      Button("查看详情", systemImage: "info.circle", action: showDetails)
       Button("下载", systemImage: "arrow.down.circle", action: download)
         .disabled(record?.phase == .downloading || record?.phase == .extracting)
     }
@@ -115,10 +118,6 @@ struct WorkshopGridItem: View {
           .font(.title2)
           .foregroundStyle(.tertiary)
       }
-  }
-
-  private func openWorkshop() {
-    if let url = item.workshopURL { NSWorkspace.shared.open(url) }
   }
 
   private func formatCount(_ value: Int) -> String {

@@ -2,16 +2,13 @@ import Foundation
 
 struct WorkshopItem: Identifiable, Codable, Hashable, Sendable {
   let id: String
+  let creatorSteamID: String?
   let title: String
   let summary: String
   let previewURL: URL?
   let tags: [String]
   let subscriptions: Int
   let fileSize: Int64
-
-  var workshopURL: URL? {
-    URL(string: "https://steamcommunity.com/sharedfiles/filedetails/?id=\(id)")
-  }
 
   var genreTags: [String] {
     tags.filter {
@@ -81,4 +78,18 @@ struct WorkshopFilters: Equatable, Hashable, Sendable {
 struct WorkshopPage: Sendable {
   let items: [WorkshopItem]
   let totalCount: Int
+}
+
+struct WorkshopComment: Identifiable, Hashable, Sendable {
+  let id: String
+  let authorName: String
+  let avatarURL: URL?
+  let postedAt: Date?
+  let text: String
+}
+
+struct WorkshopCommentsPage: Sendable {
+  let comments: [WorkshopComment]
+  let totalCount: Int
+  let nextOffset: Int
 }
