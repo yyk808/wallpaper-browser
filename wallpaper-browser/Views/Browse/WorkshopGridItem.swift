@@ -3,10 +3,12 @@ import SwiftUI
 
 struct WorkshopGridItem: View {
   let item: WorkshopItem
+  let previewRefreshToken: Int
   let showDetails: () -> Void
   let download: () -> Void
 
   @EnvironmentObject private var steamCMD: SteamCMDService
+  @EnvironmentObject private var appSettings: AppSettings
   @State private var isHovering = false
 
   private var record: DownloadRecord? { steamCMD.record(for: item.id) }
@@ -14,24 +16,20 @@ struct WorkshopGridItem: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       Button(action: showDetails) {
-        AsyncImage(url: item.previewURL) { phase in
-          switch phase {
-          case .success(let image):
-            image.resizable().scaledToFill()
-          case .failure:
-            placeholder
-          default:
-            placeholder.overlay { ProgressView().controlSize(.small) }
-          }
+        ZStack {
+          Color(nsColor: .controlBackgroundColor)
+
+          WorkshopPreviewImage(
+            url: item.previewURL,
+            refreshToken: previewRefreshToken
+          )
         }
-        .aspectRatio(16 / 9, contentMode: .fit)
+        .aspectRatio(1, contentMode: .fit)
         .frame(maxWidth: .infinity)
-        .clipped()
-        .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 6))
       }
       .buttonStyle(.plain)
-      .help("查看详情")
+      .help("detail.view")
 
       HStack(alignment: .firstTextBaseline, spacing: 8) {
         Button(action: showDetails) {
@@ -69,8 +67,12 @@ struct WorkshopGridItem: View {
     )
     .onHover { isHovering = $0 }
     .contextMenu {
-      Button("查看详情", systemImage: "info.circle", action: showDetails)
-      Button("下载", systemImage: "arrow.down.circle", action: download)
+      Button("detail.view", systemImage: "info.circle", action: showDetails)
+      Button(
+        steamCMD.hasDownloaded(item.id) ? "download.again" : "common.download",
+        systemImage: "arrow.down.circle",
+        action: download
+      )
         .disabled(record?.phase == .downloading || record?.phase == .extracting)
     }
   }
@@ -81,7 +83,10 @@ struct WorkshopGridItem: View {
     case .queued, .downloading, .extracting:
       ProgressView()
         .controlSize(.small)
-        .help(record?.phase.title ?? "正在下载")
+        .help(
+          record.map { appSettings.localized($0.phase.localizationKey) }
+            ?? appSettings.localized("download.phase.downloading")
+        )
     case .completed:
       Button {
         if let url = record?.localURL {
@@ -92,7 +97,7 @@ struct WorkshopGridItem: View {
           .foregroundStyle(.green)
       }
       .buttonStyle(.plain)
-      .help("在 Finder 中显示")
+      .help("common.showInFinder")
     case .failed, .cancelled:
       Button {
         steamCMD.retry(item.id)
@@ -100,24 +105,23 @@ struct WorkshopGridItem: View {
         Image(systemName: "arrow.clockwise.circle")
       }
       .buttonStyle(.plain)
-      .help("重试")
+      .help("common.retry")
     case .none:
-      Button(action: download) {
-        Image(systemName: "arrow.down.circle")
+      if steamCMD.hasDownloaded(item.id) {
+        Button(action: download) {
+          Image(systemName: "checkmark.circle")
+            .foregroundStyle(.green)
+        }
+        .buttonStyle(.plain)
+        .help("download.previouslyDownloaded")
+      } else {
+        Button(action: download) {
+          Image(systemName: "arrow.down.circle")
+        }
+        .buttonStyle(.plain)
+        .help("common.download")
       }
-      .buttonStyle(.plain)
-      .help("下载")
     }
-  }
-
-  private var placeholder: some View {
-    Rectangle()
-      .fill(Color(nsColor: .quaternaryLabelColor))
-      .overlay {
-        Image(systemName: "photo")
-          .font(.title2)
-          .foregroundStyle(.tertiary)
-      }
   }
 
   private func formatCount(_ value: Int) -> String {

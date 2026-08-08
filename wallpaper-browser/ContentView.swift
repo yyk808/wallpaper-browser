@@ -3,29 +3,31 @@ import SwiftUI
 private enum SidebarDestination: String, Hashable {
   case workshop
   case downloads
+  case settings
 }
 
 struct ContentView: View {
   @EnvironmentObject private var browseViewModel: BrowseViewModel
   @EnvironmentObject private var steamCMD: SteamCMDService
-  @Environment(\.openSettings) private var openSettings
   @State private var selection: SidebarDestination? = .workshop
 
   var body: some View {
     NavigationSplitView {
       List(selection: $selection) {
-        Section("壁纸") {
-          Label("创意工坊", systemImage: "square.grid.2x2")
+        Section("nav.wallpapers") {
+          Label("nav.workshop", systemImage: "square.grid.2x2")
             .tag(SidebarDestination.workshop)
-          Label("下载内容", systemImage: "arrow.down.circle")
+          Label("nav.downloads", systemImage: "arrow.down.circle")
             .badge(steamCMD.activeDownloadCount)
             .tag(SidebarDestination.downloads)
         }
       }
       .navigationTitle("Wallpaper Browser")
       .safeAreaInset(edge: .bottom) {
-        SettingsSidebarEntry(action: openSettings.callAsFunction)
-          .padding(8)
+        SettingsSidebarEntry(isSelected: selection == .settings) {
+          selection = .settings
+        }
+        .padding(8)
       }
       .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 250)
     } detail: {
@@ -33,10 +35,12 @@ struct ContentView: View {
       case .workshop:
         BrowseView(
           viewModel: browseViewModel,
-          showSettings: openSettings.callAsFunction
+          showSettings: { selection = .settings }
         )
       case .downloads:
         DownloadsView()
+      case .settings:
+        SettingsView()
       }
     }
     .frame(minWidth: 820, minHeight: 560)
@@ -45,6 +49,8 @@ struct ContentView: View {
 
 private struct SettingsSidebarEntry: View {
   @EnvironmentObject private var steamCMD: SteamCMDService
+  @EnvironmentObject private var appSettings: AppSettings
+  let isSelected: Bool
   let action: () -> Void
   @State private var isHovering = false
 
@@ -53,7 +59,7 @@ private struct SettingsSidebarEntry: View {
       HStack(spacing: 8) {
         Image(systemName: "gearshape")
           .frame(width: 18)
-        Text("设置")
+        Text("nav.settings")
         Spacer(minLength: 0)
         Circle()
           .fill(statusColor)
@@ -66,7 +72,9 @@ private struct SettingsSidebarEntry: View {
     .padding(.horizontal, 8)
     .frame(height: 36)
     .background(
-      isHovering ? Color.primary.opacity(0.07) : .clear,
+      isSelected
+        ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.2)
+        : isHovering ? Color.primary.opacity(0.07) : .clear,
       in: RoundedRectangle(cornerRadius: 7, style: .continuous)
     )
     .onHover { isHovering = $0 }
@@ -80,8 +88,8 @@ private struct SettingsSidebarEntry: View {
   }
 
   private var statusHelp: String {
-    if steamCMD.isLoggedIn { return "Steam 已登录，打开设置" }
-    if steamCMD.isInstalled { return "SteamCMD 已找到，Steam 未登录" }
-    return "SteamCMD 尚未设置"
+    if steamCMD.isLoggedIn { return appSettings.localized("sidebar.steamLoggedIn") }
+    if steamCMD.isInstalled { return appSettings.localized("sidebar.steamInstalled") }
+    return appSettings.localized("sidebar.steamNotConfigured")
   }
 }

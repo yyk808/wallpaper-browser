@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ActiveFiltersBar: View {
   @ObservedObject var viewModel: BrowseViewModel
+  @EnvironmentObject private var appSettings: AppSettings
 
   var body: some View {
     ScrollView(.horizontal, showsIndicators: false) {
@@ -21,7 +22,12 @@ struct ActiveFiltersBar: View {
             viewModel.removeGenre(genre)
           }
         }
-        Button("清除全部") { viewModel.clearFilters() }
+        ForEach(viewModel.filters.excludedGenres.sorted(), id: \.self) { genre in
+          FilterToken(title: genre, isExcluded: true) {
+            viewModel.removeExcludedGenre(genre)
+          }
+        }
+        Button("common.clearAll") { viewModel.clearFilters() }
           .buttonStyle(.link)
           .font(.caption)
       }
@@ -36,42 +42,51 @@ struct ActiveFiltersBar: View {
 
   private func ratingTitle(_ rating: String) -> String {
     switch rating {
-    case "Everyone": "所有人"
-    case "Questionable": "辅导级"
-    case "Mature": "成人"
+    case "Everyone": appSettings.localized("rating.everyone")
+    case "Questionable": appSettings.localized("rating.questionable")
+    case "Mature": appSettings.localized("rating.mature")
     default: rating
     }
   }
 
   private func resolutionTitle(_ resolution: String) -> String {
     switch resolution {
-    case "1920 x 1080": "1080p"
-    case "2560 x 1440": "1440p"
-    case "3840 x 2160": "4K"
-    case "3440 x 1440": "超宽屏"
-    case "1440 x 2560": "竖屏"
+    case "1920 x 1080": appSettings.localized("resolution.1080p")
+    case "2560 x 1440": appSettings.localized("resolution.1440p")
+    case "3840 x 2160": appSettings.localized("resolution.4k")
+    case "3440 x 1440": appSettings.localized("resolution.ultrawide")
+    case "1440 x 2560": appSettings.localized("resolution.vertical")
     default: resolution
     }
   }
 }
 
 private struct FilterToken: View {
+  @EnvironmentObject private var appSettings: AppSettings
   let title: String
+  var isExcluded = false
   let remove: () -> Void
 
   var body: some View {
     HStack(spacing: 4) {
-      Text(title)
+      if isExcluded {
+        Image(systemName: "minus.circle.fill")
+          .foregroundStyle(.red)
+      }
+      Text(isExcluded ? "\(appSettings.localized("filter.excludedPrefix")) \(title)" : title)
       Button(action: remove) {
         Image(systemName: "xmark")
           .font(.system(size: 8, weight: .bold))
       }
       .buttonStyle(.plain)
-      .help("移除此筛选")
+      .help("filter.remove")
     }
     .font(.caption)
     .padding(.horizontal, 8)
     .padding(.vertical, 4)
-    .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
+    .background(
+      isExcluded ? Color.red.opacity(0.08) : Color(nsColor: .controlBackgroundColor),
+      in: Capsule()
+    )
   }
 }

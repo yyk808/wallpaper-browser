@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SteamLoginView: View {
   @EnvironmentObject private var steamCMD: SteamCMDService
+  @EnvironmentObject private var appSettings: AppSettings
   @Environment(\.dismiss) private var dismiss
 
   @State private var username = ""
@@ -17,12 +18,12 @@ struct SteamLoginView: View {
       .font(.system(size: 38))
       .foregroundStyle(steamCMD.isLoggedIn ? .green : .secondary)
 
-      Text(steamCMD.isLoggedIn ? "已登录 Steam" : "登录 Steam")
+      Text(steamCMD.isLoggedIn ? "steam.signedIn" : "steam.signIn")
         .font(.title2)
         .fontWeight(.semibold)
 
       if !steamCMD.isLoggedIn {
-        Text("下载创意工坊内容的账户需要拥有 Wallpaper Engine。")
+        Text("steam.accountRequirement")
           .font(.callout)
           .foregroundStyle(.secondary)
       }
@@ -31,29 +32,29 @@ struct SteamLoginView: View {
         Text(steamCMD.username)
           .foregroundStyle(.secondary)
         HStack {
-          Button("退出登录") { steamCMD.logout() }
-          Button("完成") { dismiss() }
+          Button("steam.signOut") { steamCMD.logout() }
+          Button("common.done") { dismiss() }
             .buttonStyle(.borderedProminent)
         }
       } else {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
           GridRow(alignment: .firstTextBaseline) {
-            Text("用户名")
+            Text("steam.username")
               .foregroundStyle(.secondary)
-            TextField("Steam 用户名", text: $username)
+            TextField("steam.username.placeholder", text: $username)
               .textFieldStyle(.roundedBorder)
               .frame(width: 260)
           }
           GridRow(alignment: .firstTextBaseline) {
-            Text("密码")
+            Text("steam.password")
               .foregroundStyle(.secondary)
-            SecureField("Steam 密码", text: $password)
+            SecureField("steam.password.placeholder", text: $password)
               .textFieldStyle(.roundedBorder)
               .frame(width: 260)
           }
           if showGuardCode {
             GridRow(alignment: .firstTextBaseline) {
-              Text("验证码")
+              Text("steam.guardCode")
                 .foregroundStyle(.secondary)
               TextField("Steam Guard", text: $guardCode)
                 .textFieldStyle(.roundedBorder)
@@ -63,24 +64,24 @@ struct SteamLoginView: View {
         }
 
         if let error = steamCMD.loginError {
-          Text(error)
+          Text(appSettings.localized(error))
             .font(.caption)
             .foregroundStyle(.red)
             .multilineTextAlignment(.center)
-          if error.contains("Guard") || error.contains("验证码") {
-            Button("输入 Steam Guard 验证码") { showGuardCode = true }
+          if error.contains("Guard") || error == "steam.error.guardRequired" {
+            Button("steam.enterGuardCode") { showGuardCode = true }
               .buttonStyle(.link)
           }
         }
 
         HStack {
           if !username.isEmpty {
-            Button("使用缓存会话") {
+            Button("steam.useCachedSession") {
               Task { await steamCMD.loginWithCachedSession(username: username) }
             }
             .disabled(steamCMD.isLoggingIn)
           }
-          Button("登录") {
+          Button("common.signIn") {
             Task {
               await steamCMD.login(
                 username: username,
@@ -97,7 +98,7 @@ struct SteamLoginView: View {
         }
 
         if steamCMD.isLoggingIn {
-          ProgressView("正在验证 Steam 会话…")
+          ProgressView("steam.verifyingSession")
             .controlSize(.small)
         }
       }

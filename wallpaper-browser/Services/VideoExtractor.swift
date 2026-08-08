@@ -10,11 +10,11 @@ enum VideoExtractorError: LocalizedError {
 
   var errorDescription: String? {
     switch self {
-    case .missingProject: "下载内容中没有有效的 project.json。"
-    case .unsupportedType(let type): "下载内容不是 Video 类型（\(type)）。"
-    case .unsafePath: "project.json 指向了不安全的文件路径。"
-    case .missingVideo: "找不到 project.json 指定的视频文件。"
-    case .unplayableVideo: "该视频格式无法由 macOS 播放。"
+    case .missingProject: "extractor.error.missingProject"
+    case .unsupportedType(let type): "extractor.error.unsupportedType|\(type)"
+    case .unsafePath: "extractor.error.unsafePath"
+    case .missingVideo: "extractor.error.missingVideo"
+    case .unplayableVideo: "extractor.error.unplayableVideo"
     }
   }
 }

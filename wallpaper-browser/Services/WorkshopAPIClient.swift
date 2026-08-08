@@ -9,11 +9,11 @@ enum WorkshopAPIError: LocalizedError {
 
   var errorDescription: String? {
     switch self {
-    case .missingAPIKey: "需要先在设置中填写 Steam Web API Key。"
-    case .invalidAPIKey: "Steam Web API Key 无效，请检查后重试。"
-    case .invalidResponse: "Steam 返回了无法识别的数据。"
-    case .commentsUnavailable: "这件作品暂时无法读取评论。"
-    case .httpStatus(let status): "Steam 服务请求失败（HTTP \(status)）。"
+    case .missingAPIKey: "api.error.missingKey"
+    case .invalidAPIKey: "api.error.invalidKey"
+    case .invalidResponse: "api.error.invalidResponse"
+    case .commentsUnavailable: "api.error.commentsUnavailable"
+    case .httpStatus(let status): "api.error.httpStatus|\(status)"
     }
   }
 }
@@ -43,6 +43,7 @@ nonisolated struct WorkshopAPIClient: Sendable {
   func fetchItems(
     query: String,
     sortOrder: WorkshopSortOrder,
+    trendPeriod: WorkshopTrendPeriod,
     filters: WorkshopFilters,
     page: Int,
     pageSize: Int = 30
@@ -62,10 +63,14 @@ nonisolated struct WorkshopAPIClient: Sendable {
       URLQueryItem(name: "return_tags", value: "true"),
       URLQueryItem(name: "return_previews", value: "true"),
       URLQueryItem(name: "return_short_description", value: "true"),
+      URLQueryItem(name: "return_vote_data", value: "true"),
     ]
 
     if !query.isEmpty {
       queryItems.append(URLQueryItem(name: "search_text", value: query))
+    }
+    if sortOrder == .trending {
+      queryItems.append(URLQueryItem(name: "days", value: String(trendPeriod.rawValue)))
     }
 
     var requiredTags = ["Video"]
@@ -81,11 +86,12 @@ nonisolated struct WorkshopAPIClient: Sendable {
       queryItems.append(URLQueryItem(name: "requiredtags[\(index)]", value: tag))
     }
 
+    var excludedTags = filters.excludedGenres
     if filters.ratings.count > 1 && filters.ratings.count < WorkshopFilters.contentRatings.count {
-      let excluded = Set(WorkshopFilters.contentRatings).subtracting(filters.ratings)
-      for (index, tag) in excluded.sorted().enumerated() {
-        queryItems.append(URLQueryItem(name: "excludedtags[\(index)]", value: tag))
-      }
+      excludedTags.formUnion(Set(WorkshopFilters.contentRatings).subtracting(filters.ratings))
+    }
+    for (index, tag) in excludedTags.sorted().enumerated() {
+      queryItems.append(URLQueryItem(name: "excludedtags[\(index)]", value: tag))
     }
 
     components.queryItems = queryItems
@@ -101,12 +107,44 @@ nonisolated struct WorkshopAPIClient: Sendable {
     }
 
     let payload = try JSONDecoder().decode(QueryEnvelope.self, from: data)
-    let items = payload.response.publishedFileDetails
-      .map(\.workshopItem)
-      .filter { item in
-        item.tags.contains { $0.caseInsensitiveCompare("Video") == .orderedSame }
+    let details = payload.response.publishedFileDetails
+      .filter { !$0.id.isEmpty && !$0.title.isEmpty }
+      .filter { detail in
+        detail.tags.contains { $0.tag.caseInsensitiveCompare("Video") == .orderedSame }
       }
+    let creatorNames = await fetchCreatorNames(
+      for: details.compactMap(\.creatorSteamID).filter { !$0.isEmpty }
+    )
+    let items = details.map { detail in
+      detail.workshopItem(creatorName: detail.creatorSteamID.flatMap { creatorNames[$0] })
+    }
     return WorkshopPage(items: items, totalCount: payload.response.total)
+  }
+
+  private func fetchCreatorNames(for steamIDs: [String]) async -> [String: String] {
+    let uniqueIDs = Array(Set(steamIDs)).sorted()
+    guard !uniqueIDs.isEmpty else { return [:] }
+
+    var components = URLComponents(
+      string: "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/"
+    )!
+    components.queryItems = [
+      URLQueryItem(name: "key", value: apiKeyProvider()),
+      URLQueryItem(name: "steamids", value: uniqueIDs.joined(separator: ",")),
+    ]
+    guard let url = components.url else { return [:] }
+
+    do {
+      let (data, response) = try await session.data(from: url)
+      guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [:] }
+      let payload = try JSONDecoder().decode(PlayerSummariesEnvelope.self, from: data)
+      return Dictionary(uniqueKeysWithValues: payload.response.players.compactMap { player in
+        guard !player.steamID.isEmpty, !player.personaName.isEmpty else { return nil }
+        return (player.steamID, player.personaName)
+      })
+    } catch {
+      return [:]
+    }
   }
 
   func fetchComments(
@@ -180,6 +218,10 @@ private struct WorkshopFileDTO: Decodable {
   let tags: [TagDTO]
   let subscriptions: Int
   let fileSize: Int64
+  let ratingScore: Double?
+  let positiveVotes: Int
+  let negativeVotes: Int
+  let voteData: VoteDataDTO?
 
   enum CodingKeys: String, CodingKey {
     case id = "publishedfileid"
@@ -191,13 +233,17 @@ private struct WorkshopFileDTO: Decodable {
     case subscriptions
     case lifetimeSubscriptions = "lifetime_subscriptions"
     case fileSize = "file_size"
+    case ratingScore = "score"
+    case voteData = "vote_data"
+    case positiveVotes = "votes_up"
+    case negativeVotes = "votes_down"
   }
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    id = try container.decode(String.self, forKey: .id)
+    id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
     creatorSteamID = try container.decodeIfPresent(String.self, forKey: .creatorSteamID)
-    title = try container.decode(String.self, forKey: .title)
+    title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
     summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
     previewURL = try container.decodeIfPresent(String.self, forKey: .previewURL)
       .flatMap(URL.init(string:))
@@ -207,19 +253,66 @@ private struct WorkshopFileDTO: Decodable {
       ?? container.decodeFlexibleInt(forKey: .lifetimeSubscriptions)
       ?? 0
     fileSize = container.decodeFlexibleInt64(forKey: .fileSize) ?? 0
+    ratingScore = container.decodeFlexibleDouble(forKey: .ratingScore)
+    voteData = try? container.decode(VoteDataDTO.self, forKey: .voteData)
+    positiveVotes =
+      container.decodeFlexibleInt(forKey: .positiveVotes) ?? voteData?.positiveVotes ?? 0
+    negativeVotes =
+      container.decodeFlexibleInt(forKey: .negativeVotes) ?? voteData?.negativeVotes ?? 0
   }
 
-  var workshopItem: WorkshopItem {
+  func workshopItem(creatorName: String?) -> WorkshopItem {
     WorkshopItem(
       id: id,
       creatorSteamID: creatorSteamID,
+      creatorName: creatorName,
       title: title,
       summary: summary,
       previewURL: previewURL,
       tags: tags.map(\.tag),
       subscriptions: subscriptions,
-      fileSize: fileSize
+      fileSize: fileSize,
+      ratingScore: ratingScore ?? voteData?.score,
+      positiveVotes: positiveVotes,
+      negativeVotes: negativeVotes
     )
+  }
+}
+
+private struct VoteDataDTO: Decodable {
+  let score: Double?
+  let positiveVotes: Int
+  let negativeVotes: Int
+
+  enum CodingKeys: String, CodingKey {
+    case score
+    case positiveVotes = "votes_up"
+    case negativeVotes = "votes_down"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    score = container.decodeFlexibleDouble(forKey: .score)
+    positiveVotes = container.decodeFlexibleInt(forKey: .positiveVotes) ?? 0
+    negativeVotes = container.decodeFlexibleInt(forKey: .negativeVotes) ?? 0
+  }
+}
+
+private struct PlayerSummariesEnvelope: Decodable {
+  let response: PlayerSummariesResponse
+}
+
+private struct PlayerSummariesResponse: Decodable {
+  let players: [PlayerSummaryDTO]
+}
+
+private struct PlayerSummaryDTO: Decodable {
+  let steamID: String
+  let personaName: String
+
+  enum CodingKeys: String, CodingKey {
+    case steamID = "steamid"
+    case personaName = "personaname"
   }
 }
 
@@ -290,7 +383,7 @@ private enum SteamCommentHTMLParser {
 
       return WorkshopComment(
         id: String(rawID.dropFirst("comment_".count)),
-        authorName: author?.isEmpty == false ? author! : "Steam 用户",
+        authorName: author?.isEmpty == false ? author! : "steam.userFallback",
         avatarURL: avatarString.flatMap(URL.init(string:)),
         postedAt: timestamp.map(Date.init(timeIntervalSince1970:)),
         text: text
@@ -326,6 +419,12 @@ extension KeyedDecodingContainer {
   fileprivate func decodeFlexibleInt64(forKey key: Key) -> Int64? {
     if let value = try? decode(Int64.self, forKey: key) { return value }
     if let value = try? decode(String.self, forKey: key) { return Int64(value) }
+    return nil
+  }
+
+  fileprivate func decodeFlexibleDouble(forKey key: Key) -> Double? {
+    if let value = try? decode(Double.self, forKey: key) { return value }
+    if let value = try? decode(String.self, forKey: key) { return Double(value) }
     return nil
   }
 }

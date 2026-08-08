@@ -4,13 +4,15 @@ import SwiftUI
 struct BrowseView: View {
   @ObservedObject var viewModel: BrowseViewModel
   @EnvironmentObject private var steamCMD: SteamCMDService
+  @EnvironmentObject private var appSettings: AppSettings
   let showSettings: () -> Void
 
   @State private var isShowingFilters = false
   @State private var selectedItem: WorkshopItem?
+  @State private var scrollPositionID: String?
 
   private let columns = [
-    GridItem(.adaptive(minimum: 210, maximum: 280), spacing: 14, alignment: .top)
+    GridItem(.adaptive(minimum: 220, maximum: 280), spacing: 14, alignment: .top)
   ]
 
   var body: some View {
@@ -23,19 +25,22 @@ struct BrowseView: View {
 
         content
       }
-      .navigationTitle("创意工坊")
-      .searchable(text: $viewModel.searchText, prompt: "搜索视频壁纸")
+      .navigationTitle("nav.workshop")
+      .searchable(text: $viewModel.searchText, prompt: "browse.searchPrompt")
       .onChange(of: viewModel.searchText) { _, _ in
         viewModel.scheduleSearch()
       }
       .onChange(of: viewModel.sortOrder) { _, _ in
-        viewModel.refresh()
+        viewModel.loadCachedOrFetch()
+      }
+      .onChange(of: viewModel.trendPeriod) { _, _ in
+        viewModel.loadCachedOrFetch()
       }
       .onReceive(NotificationCenter.default.publisher(for: .apiKeyDidChange)) { _ in
         viewModel.refresh()
       }
       .task {
-        if viewModel.items.isEmpty { viewModel.refresh() }
+        if viewModel.items.isEmpty { viewModel.loadCachedOrFetch() }
       }
       .navigationDestination(item: $selectedItem) { item in
         WorkshopDetailView(
@@ -46,15 +51,38 @@ struct BrowseView: View {
       .toolbar {
         ToolbarItemGroup {
           Menu {
-            Picker("排序", selection: $viewModel.sortOrder) {
-              ForEach(WorkshopSortOrder.allCases) { order in
-                Text(order.title).tag(order)
+            ForEach(WorkshopSortOrder.allCases) { order in
+              Button {
+                viewModel.sortOrder = order
+              } label: {
+                if viewModel.sortOrder == order {
+                  Label(appSettings.localized(order.localizationKey), systemImage: "checkmark")
+                } else {
+                  Text(appSettings.localized(order.localizationKey))
+                }
+              }
+            }
+
+            if viewModel.sortOrder == .trending {
+              Divider()
+              Section("browse.trendPeriod") {
+                ForEach(WorkshopTrendPeriod.allCases) { period in
+                  Button {
+                    viewModel.trendPeriod = period
+                  } label: {
+                    if viewModel.trendPeriod == period {
+                      Label(appSettings.localized(period.localizationKey), systemImage: "checkmark")
+                    } else {
+                      Text(appSettings.localized(period.localizationKey))
+                    }
+                  }
+                }
               }
             }
           } label: {
-            Label(viewModel.sortOrder.title, systemImage: "arrow.up.arrow.down")
+            Label(sortMenuTitle, systemImage: "arrow.up.arrow.down")
           }
-          .help("排序")
+          .help("common.sort")
 
           Button {
             isShowingFilters.toggle()
@@ -71,7 +99,7 @@ struct BrowseView: View {
                 }
               }
           }
-          .help("筛选")
+          .help("common.filter")
           .popover(isPresented: $isShowingFilters, arrowEdge: .bottom) {
             FilterPopover(
               filters: viewModel.filters,
@@ -84,14 +112,20 @@ struct BrowseView: View {
           }
 
           Button {
-            viewModel.refresh()
+            viewModel.refreshPreviews()
           } label: {
             Image(systemName: "arrow.clockwise")
           }
-          .help("刷新")
+          .help("browse.refreshPreviews")
         }
       }
     }
+  }
+
+  private var sortMenuTitle: String {
+    let sortTitle = appSettings.localized(viewModel.sortOrder.localizationKey)
+    guard viewModel.sortOrder == .trending else { return sortTitle }
+    return "\(sortTitle) · \(appSettings.localized(viewModel.trendPeriod.localizationKey))"
   }
 
   @ViewBuilder
@@ -99,23 +133,21 @@ struct BrowseView: View {
     if viewModel.isLoading && viewModel.items.isEmpty {
       VStack(spacing: 12) {
         ProgressView()
-        Text("正在加载创意工坊…")
+        Text("browse.loading")
           .foregroundStyle(.secondary)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if let error = viewModel.errorMessage, viewModel.items.isEmpty {
       ContentUnavailableView {
-        Label("无法加载壁纸", systemImage: "exclamationmark.triangle")
+        Label("browse.loadFailed", systemImage: "exclamationmark.triangle")
       } description: {
-        Text(error)
+        Text(appSettings.localized(error))
       } actions: {
         if !viewModel.hasAPIKey {
-          SettingsLink {
-            Text("打开设置")
-          }
-          .buttonStyle(.borderedProminent)
+          Button("common.openSettings", action: showSettings)
+            .buttonStyle(.borderedProminent)
         } else {
-          Button("重试") { viewModel.refresh() }
+          Button("common.retry") { viewModel.refresh() }
             .buttonStyle(.borderedProminent)
         }
       }
@@ -127,26 +159,49 @@ struct BrowseView: View {
           ForEach(viewModel.items) { item in
             WorkshopGridItem(
               item: item,
+              previewRefreshToken: viewModel.previewRefreshToken,
               showDetails: { selectedItem = item },
               download: { requestDownload(item) }
             )
+            .id(item.id)
+          }
+
+          if viewModel.items.count < viewModel.totalCount {
+            Color.clear
+              .frame(height: 1)
+              .task(id: viewModel.items.count) {
+                await viewModel.loadMore()
+              }
           }
         }
         .padding(16)
+        .scrollTargetLayout()
 
-        if viewModel.canLoadMore {
-          Button {
-            Task { await viewModel.loadMore() }
-          } label: {
-            if viewModel.isLoading {
-              ProgressView().controlSize(.small)
-            } else {
-              Text("加载更多")
+        if let error = viewModel.errorMessage {
+          HStack(spacing: 10) {
+            Label(appSettings.localized(error), systemImage: "exclamationmark.triangle")
+              .foregroundStyle(.secondary)
+            Button("common.retry") {
+              Task { await viewModel.loadMore() }
             }
           }
-          .buttonStyle(.bordered)
+          .font(.caption)
           .padding(.bottom, 20)
+        } else if viewModel.isLoading && !viewModel.items.isEmpty {
+          ProgressView()
+            .controlSize(.small)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
         }
+      }
+      .scrollPosition(id: $scrollPositionID, anchor: .top)
+      .onAppear {
+        if scrollPositionID == nil {
+          scrollPositionID = viewModel.savedScrollItemID
+        }
+      }
+      .onChange(of: scrollPositionID) { _, itemID in
+        viewModel.saveScrollPosition(itemID)
       }
       .overlay(alignment: .bottomTrailing) {
         Text("\(viewModel.items.count) / \(viewModel.totalCount)")

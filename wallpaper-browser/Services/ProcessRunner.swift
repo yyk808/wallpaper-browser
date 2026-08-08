@@ -9,7 +9,7 @@ enum ProcessRunnerError: LocalizedError {
   case alreadyRunning
 
   var errorDescription: String? {
-    "已有一个 SteamCMD 任务正在运行。"
+    "steamcmd.error.alreadyRunning"
   }
 }
 
@@ -20,13 +20,17 @@ nonisolated final class ProcessRunner: @unchecked Sendable {
   func run(
     executableURL: URL,
     arguments: [String],
-    currentDirectoryURL: URL? = nil
+    currentDirectoryURL: URL? = nil,
+    standardInput: String? = nil,
+    onOutput: (@Sendable (String) -> Void)? = nil
   ) async throws -> ProcessResult {
     try await Task.detached(priority: .userInitiated) { [self] in
       try runSynchronously(
         executableURL: executableURL,
         arguments: arguments,
-        currentDirectoryURL: currentDirectoryURL
+        currentDirectoryURL: currentDirectoryURL,
+        standardInput: standardInput,
+        onOutput: onOutput
       )
     }.value
   }
@@ -43,13 +47,17 @@ nonisolated final class ProcessRunner: @unchecked Sendable {
   private func runSynchronously(
     executableURL: URL,
     arguments: [String],
-    currentDirectoryURL: URL?
+    currentDirectoryURL: URL?,
+    standardInput: String?,
+    onOutput: (@Sendable (String) -> Void)?
   ) throws -> ProcessResult {
     let process = Process()
     let pipe = Pipe()
+    let inputPipe = standardInput.map { _ in Pipe() }
     process.executableURL = executableURL
     process.arguments = arguments
     process.currentDirectoryURL = currentDirectoryURL
+    process.standardInput = inputPipe
     process.standardOutput = pipe
     process.standardError = pipe
 
@@ -68,10 +76,21 @@ nonisolated final class ProcessRunner: @unchecked Sendable {
     }
 
     try process.run()
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    if let standardInput, let inputHandle = inputPipe?.fileHandleForWriting {
+      inputHandle.write(Data(standardInput.utf8))
+      try? inputHandle.close()
+    }
+    let handle = pipe.fileHandleForReading
+    var outputData = Data()
+    while true {
+      let data = handle.readData(ofLength: 8_192)
+      guard !data.isEmpty else { break }
+      outputData.append(data)
+      onOutput?(String(decoding: data, as: UTF8.self))
+    }
     process.waitUntilExit()
     return ProcessResult(
-      output: String(data: data, encoding: .utf8) ?? "",
+      output: String(decoding: outputData, as: UTF8.self),
       terminationStatus: process.terminationStatus
     )
   }

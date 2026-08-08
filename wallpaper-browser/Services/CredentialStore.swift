@@ -7,7 +7,7 @@ enum CredentialStoreError: LocalizedError {
   var errorDescription: String? {
     switch self {
     case .unexpectedStatus(let status):
-      "无法访问钥匙串（错误 \(status)）"
+      "credential.error.keychain|\(status)"
     }
   }
 }

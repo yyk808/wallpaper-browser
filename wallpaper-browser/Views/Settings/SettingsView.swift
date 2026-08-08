@@ -5,30 +5,37 @@ private enum SettingsDestination: String, Hashable {
   case workshop
   case steam
   case storage
+  case appearance
 }
 
 struct SettingsView: View {
   @EnvironmentObject private var steamCMD: SteamCMDService
+  @EnvironmentObject private var appSettings: AppSettings
+  @ObservedObject private var imageCache = WorkshopImageCache.shared
   @State private var selection: SettingsDestination = .workshop
   @State private var apiKey = ""
   @State private var apiKeyMessage: String?
   @State private var apiKeySaved = false
   @State private var isShowingLogin = false
   @State private var copiedInstallCommand = false
+  @State private var cacheLimitMB = 512
+  @State private var isConfirmingCacheClear = false
 
   var body: some View {
     VStack(spacing: 0) {
-      Picker("设置分类", selection: $selection) {
-        Label("创意工坊", systemImage: "key.horizontal")
+      Picker("settings.category", selection: $selection) {
+        Label("nav.workshop", systemImage: "key.horizontal")
           .tag(SettingsDestination.workshop)
         Label("Steam", systemImage: "gamecontroller")
           .tag(SettingsDestination.steam)
-        Label("存储", systemImage: "externaldrive")
+        Label("settings.storage", systemImage: "externaldrive")
           .tag(SettingsDestination.storage)
+        Label("settings.appearance", systemImage: "paintbrush")
+          .tag(SettingsDestination.appearance)
       }
       .pickerStyle(.segmented)
       .labelsHidden()
-      .frame(width: 430)
+      .frame(maxWidth: 430)
       .padding(.horizontal, 24)
       .padding(.vertical, 14)
 
@@ -41,33 +48,85 @@ struct SettingsView: View {
         steamPane
       case .storage:
         storagePane
+      case .appearance:
+        appearancePane
       }
     }
-    .frame(minWidth: 720, minHeight: 480)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .navigationTitle("nav.settings")
     .onAppear {
       apiKey = CredentialStore.shared.loadAPIKey()
+      cacheLimitMB = imageCache.maximumSizeMegabytes
+      imageCache.refreshDiskUsage()
     }
     .sheet(isPresented: $isShowingLogin) {
       SteamLoginView()
         .environmentObject(steamCMD)
     }
+    .confirmationDialog(
+      "settings.clearCache.title",
+      isPresented: $isConfirmingCacheClear,
+      titleVisibility: .visible
+    ) {
+      Button("settings.clearCache", role: .destructive) {
+        imageCache.clear()
+      }
+      Button("common.cancel", role: .cancel) {}
+    } message: {
+      Text("settings.clearCache.message")
+    }
+  }
+
+  private var appearancePane: some View {
+    SettingsPane(
+      title: "settings.appearance",
+      subtitle: "settings.appearance.subtitle"
+    ) {
+      SettingsSection(title: "settings.language") {
+        SettingsRow(label: "settings.appLanguage") {
+          Picker("settings.appLanguage", selection: $appSettings.language) {
+            ForEach(AppLanguage.allCases) { language in
+              Text(appSettings.localized(language.displayName)).tag(language)
+            }
+          }
+          .labelsHidden()
+          .frame(width: 180)
+        }
+      }
+
+      Divider()
+
+      SettingsSection(title: "settings.colorTheme") {
+        SettingsRow(label: "settings.theme") {
+          Picker("settings.theme", selection: $appSettings.theme) {
+            ForEach(AppTheme.allCases) { theme in
+              Label(theme.localizedKey, systemImage: theme == .dark ? "moon" : theme == .light ? "sun.max" : "circle.lefthalf.filled")
+                .tag(theme)
+            }
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+          .frame(width: 260)
+        }
+      }
+    }
   }
 
   private var workshopPane: some View {
     SettingsPane(
-      title: "创意工坊",
-      subtitle: "用于搜索和浏览 Wallpaper Engine 的 Video 类型内容。"
+      title: "nav.workshop",
+      subtitle: "settings.workshop.subtitle"
     ) {
       SettingsSection(title: "Steam Web API") {
         SettingsRow(label: "API Key") {
-          SecureField("输入 API Key", text: $apiKey)
+          SecureField("settings.apiKey.placeholder", text: $apiKey)
             .textFieldStyle(.roundedBorder)
             .frame(maxWidth: 330)
 
           Button {
             saveAPIKey()
           } label: {
-            Label("保存", systemImage: "checkmark")
+            Label("common.save", systemImage: "checkmark")
           }
           .buttonStyle(.borderedProminent)
           .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -75,12 +134,12 @@ struct SettingsView: View {
 
         SettingsRow(label: "") {
           Link(
-            "获取 Steam Web API Key",
+            "settings.apiKey.get",
             destination: URL(string: "https://steamcommunity.com/dev/apikey")!
           )
 
           if !CredentialStore.shared.loadAPIKey().isEmpty {
-            Button("移除", systemImage: "trash", role: .destructive) {
+            Button("common.remove", systemImage: "trash", role: .destructive) {
               removeAPIKey()
             }
           }
@@ -89,7 +148,7 @@ struct SettingsView: View {
         if let apiKeyMessage {
           SettingsRow(label: "") {
             Label(
-              apiKeyMessage,
+              appSettings.localized(apiKeyMessage),
               systemImage: apiKeySaved ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
             )
             .font(.caption)
@@ -103,22 +162,22 @@ struct SettingsView: View {
   private var steamPane: some View {
     SettingsPane(
       title: "Steam",
-      subtitle: "管理 SteamCMD 路径和用于下载创意工坊内容的账户。"
+      subtitle: "settings.steam.subtitle"
     ) {
       if !steamCMD.isInstalled {
         installCallout
       }
 
       SettingsSection(title: "SteamCMD") {
-        SettingsRow(label: "状态") {
+        SettingsRow(label: "common.status") {
           StatusValue(
-            title: steamCMD.isInstalled ? "已找到" : "未找到",
+            title: appSettings.localized(steamCMD.isInstalled ? "status.found" : "status.notFound"),
             color: steamCMD.isInstalled ? .green : .secondary
           )
         }
 
-        SettingsRow(label: "路径") {
-          Text(steamCMD.steamCMDPath ?? "未设置")
+        SettingsRow(label: "common.path") {
+          Text(steamCMD.steamCMDPath ?? appSettings.localized("status.notConfigured"))
             .font(.system(.body, design: .monospaced))
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -127,10 +186,10 @@ struct SettingsView: View {
         }
 
         SettingsRow(label: "") {
-          Button("重新检测", systemImage: "arrow.clockwise") {
+          Button("common.detectAgain", systemImage: "arrow.clockwise") {
             steamCMD.detectSteamCMD()
           }
-          Button("选择可执行文件", systemImage: "doc.badge.gearshape") {
+          Button("settings.chooseExecutable", systemImage: "doc.badge.gearshape") {
             chooseSteamCMD()
           }
         }
@@ -138,10 +197,10 @@ struct SettingsView: View {
 
       Divider()
 
-      SettingsSection(title: "Steam 账户") {
-        SettingsRow(label: "账户") {
+      SettingsSection(title: "settings.steamAccount") {
+        SettingsRow(label: "common.account") {
           StatusValue(
-            title: steamCMD.isLoggedIn ? steamCMD.username : "未登录",
+            title: steamCMD.isLoggedIn ? steamCMD.username : appSettings.localized("status.notSignedIn"),
             color: steamCMD.isLoggedIn ? .green : .orange
           )
         }
@@ -151,7 +210,7 @@ struct SettingsView: View {
             isShowingLogin = true
           } label: {
             Label(
-              steamCMD.isLoggedIn ? "管理账户" : "登录 Steam",
+              steamCMD.isLoggedIn ? "steam.manageAccount" : "steam.signIn",
               systemImage: steamCMD.isLoggedIn
                 ? "person.crop.circle.badge.checkmark" : "person.badge.key"
             )
@@ -165,11 +224,11 @@ struct SettingsView: View {
 
   private var storagePane: some View {
     SettingsPane(
-      title: "存储",
-      subtitle: "SteamCMD 下载完成后，主视频文件会被提取到这里。"
+      title: "settings.storage",
+      subtitle: "settings.storage.subtitle"
     ) {
-      SettingsSection(title: "视频目录") {
-        SettingsRow(label: "保存到") {
+      SettingsSection(title: "settings.videoDirectory") {
+        SettingsRow(label: "settings.saveTo") {
           Text(steamCMD.libraryDirectory.path)
             .font(.system(.body, design: .monospaced))
             .foregroundStyle(.secondary)
@@ -179,12 +238,66 @@ struct SettingsView: View {
         }
 
         SettingsRow(label: "") {
-          Button("选择目录", systemImage: "folder.badge.plus") {
+          Button("common.chooseDirectory", systemImage: "folder.badge.plus") {
             chooseLibraryDirectory()
           }
-          Button("在 Finder 中显示", systemImage: "folder") {
+          Button("common.showInFinder", systemImage: "folder") {
             revealLibraryDirectory()
           }
+        }
+      }
+
+      Divider()
+
+      SettingsSection(title: "settings.previewCache") {
+        SettingsRow(label: "settings.used") {
+          Text(formatBytes(imageCache.diskUsageBytes))
+            .monospacedDigit()
+            .frame(minWidth: 72, alignment: .leading)
+
+          ProgressView(
+            value: Double(imageCache.diskUsageBytes),
+            total: Double(max(imageCache.maximumDiskUsageBytes, 1))
+          )
+          .progressViewStyle(.linear)
+          .frame(maxWidth: 240)
+        }
+
+        SettingsRow(label: "settings.limit") {
+          Stepper(value: $cacheLimitMB, in: 64...4_096, step: 64) {
+            Text("\(cacheLimitMB) MB")
+              .monospacedDigit()
+              .frame(width: 82, alignment: .leading)
+          }
+          .onChange(of: cacheLimitMB) { _, value in
+            imageCache.setMaximumSize(megabytes: value)
+          }
+        }
+
+        SettingsRow(label: "") {
+          Button("settings.clearCache", systemImage: "trash", role: .destructive) {
+            isConfirmingCacheClear = true
+          }
+          .disabled(imageCache.diskUsageBytes == 0)
+        }
+      }
+
+      Divider()
+
+      SettingsSection(title: "settings.downloadMetadata") {
+        SettingsRow(label: "settings.recorded") {
+          Text(
+            String(
+              format: appSettings.localized("settings.recordedItems"),
+              steamCMD.downloadedMetadataCount
+            )
+          )
+            .monospacedDigit()
+        }
+
+        SettingsRow(label: "common.status") {
+          Label("settings.savedSeparately", systemImage: "checkmark.circle.fill")
+            .foregroundStyle(.green)
         }
       }
     }
@@ -197,9 +310,9 @@ struct SettingsView: View {
         .foregroundStyle(.secondary)
 
       VStack(alignment: .leading, spacing: 3) {
-        Text("未找到 SteamCMD")
+        Text("steamcmd.notFound.title")
           .fontWeight(.medium)
-        Text("可使用 Homebrew 安装，或在下方选择已有可执行文件。")
+        Text("steamcmd.notFound.message")
           .font(.caption)
           .foregroundStyle(.secondary)
       }
@@ -217,7 +330,7 @@ struct SettingsView: View {
       } label: {
         Image(systemName: copiedInstallCommand ? "checkmark" : "doc.on.doc")
       }
-      .help("复制安装命令")
+      .help("steamcmd.copyInstallCommand")
     }
     .padding(12)
     .background(
@@ -227,7 +340,7 @@ struct SettingsView: View {
   private func saveAPIKey() {
     do {
       try CredentialStore.shared.saveAPIKey(apiKey)
-      apiKeyMessage = "已安全保存到钥匙串"
+      apiKeyMessage = "settings.apiKey.saved"
       apiKeySaved = true
     } catch {
       apiKeyMessage = error.localizedDescription
@@ -239,7 +352,7 @@ struct SettingsView: View {
     do {
       try CredentialStore.shared.deleteAPIKey()
       apiKey = ""
-      apiKeyMessage = "API Key 已移除"
+      apiKeyMessage = "settings.apiKey.removed"
       apiKeySaved = true
     } catch {
       apiKeyMessage = error.localizedDescription
@@ -249,8 +362,8 @@ struct SettingsView: View {
 
   private func chooseSteamCMD() {
     let panel = NSOpenPanel()
-    panel.title = "选择 SteamCMD"
-    panel.message = "请选择 steamcmd 或 steamcmd.sh 可执行文件"
+    panel.title = "steamcmd.choose.title"
+    panel.message = "steamcmd.choose.message"
     panel.canChooseFiles = true
     panel.canChooseDirectories = false
     panel.allowsMultipleSelection = false
@@ -261,7 +374,7 @@ struct SettingsView: View {
 
   private func chooseLibraryDirectory() {
     let panel = NSOpenPanel()
-    panel.title = "选择视频保存目录"
+    panel.title = "settings.chooseVideoDirectory"
     panel.canChooseFiles = false
     panel.canChooseDirectories = true
     panel.canCreateDirectories = true
@@ -278,16 +391,20 @@ struct SettingsView: View {
     )
     NSWorkspace.shared.open(steamCMD.libraryDirectory)
   }
+
+  private func formatBytes(_ value: Int64) -> String {
+    ByteCountFormatter.string(fromByteCount: value, countStyle: .file)
+  }
 }
 
 private struct SettingsPane<Content: View>: View {
-  let title: String
-  let subtitle: String
+  let title: LocalizedStringKey
+  let subtitle: LocalizedStringKey
   @ViewBuilder let content: Content
 
   init(
-    title: String,
-    subtitle: String,
+    title: LocalizedStringKey,
+    subtitle: LocalizedStringKey,
     @ViewBuilder content: () -> Content
   ) {
     self.title = title
@@ -317,10 +434,10 @@ private struct SettingsPane<Content: View>: View {
 }
 
 private struct SettingsSection<Content: View>: View {
-  let title: String
+  let title: LocalizedStringKey
   @ViewBuilder let content: Content
 
-  init(title: String, @ViewBuilder content: () -> Content) {
+  init(title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
     self.title = title
     self.content = content()
   }
@@ -335,10 +452,10 @@ private struct SettingsSection<Content: View>: View {
 }
 
 private struct SettingsRow<Content: View>: View {
-  let label: String
+  let label: LocalizedStringKey
   @ViewBuilder let content: Content
 
-  init(label: String, @ViewBuilder content: () -> Content) {
+  init(label: LocalizedStringKey, @ViewBuilder content: () -> Content) {
     self.label = label
     self.content = content()
   }
