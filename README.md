@@ -18,6 +18,14 @@
 
 Wallpaper Browser brings the Steam Workshop browsing experience to a focused native macOS app. Search for wallpapers, explore authors and collections, inspect rich item details, and download video wallpapers through SteamCMD.
 
+## Preview
+
+<p align="center">
+  <img src="screenshots/featured-home.jpg" alt="Wallpaper Browser Featured home page" width="900">
+</p>
+
+<p align="center"><em>The Featured page with trending Workshop content.</em></p>
+
 ## Highlights
 
 ### Workshop discovery
