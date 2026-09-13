@@ -230,3 +230,14 @@
 "favorites.removeAuthor" = "제작자 즐겨찾기 해제";
 "favorites.open" = "열기";
 "favorites.viewAuthorWorks" = "제작자 작품 보기";
+
+"settings.about" = "정보";
+"settings.about.subtitle" = "Wallpaper Browser 앱 정보입니다.";
+"about.description" = "Wallpaper Engine 창작마당 콘텐츠를 찾고, 살펴보고, 다운로드하는 macOS 네이티브 앱입니다.";
+"about.information" = "앱 정보";
+"about.version" = "버전";
+"about.build" = "빌드";
+"about.commit" = "커밋";
+"about.links" = "링크";
+"about.sourceCode" = "소스 코드";
+"about.license" = "라이선스";

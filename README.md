@@ -91,6 +91,7 @@ xcodebuild \
   -project wallpaper-browser.xcodeproj \
   -scheme wallpaper-browser \
   -configuration Debug \
+  GIT_COMMIT="$(git rev-parse HEAD)" \
   build
 ```
 

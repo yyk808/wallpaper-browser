@@ -230,3 +230,14 @@
 "favorites.removeAuthor" = "クリエイターをお気に入りから削除";
 "favorites.open" = "開く";
 "favorites.viewAuthorWorks" = "作品を見る";
+
+"settings.about" = "このアプリについて";
+"settings.about.subtitle" = "Wallpaper Browser のアプリ情報。";
+"about.description" = "Wallpaper Engine ワークショップのコンテンツを検索、確認、ダウンロードする macOS ネイティブアプリです。";
+"about.information" = "アプリ情報";
+"about.version" = "バージョン";
+"about.build" = "ビルド";
+"about.commit" = "コミット";
+"about.links" = "リンク";
+"about.sourceCode" = "ソースコード";
+"about.license" = "ライセンス";

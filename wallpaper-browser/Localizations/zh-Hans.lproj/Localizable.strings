@@ -276,3 +276,14 @@
 "favorites.removeAuthor" = "取消收藏作者";
 "favorites.open" = "打开";
 "favorites.viewAuthorWorks" = "查看作者作品";
+
+"settings.about" = "关于";
+"settings.about.subtitle" = "Wallpaper Browser 应用信息。";
+"about.description" = "用于发现、查看和下载 Wallpaper Engine 创意工坊内容的原生 macOS 应用。";
+"about.information" = "应用信息";
+"about.version" = "版本";
+"about.build" = "构建";
+"about.commit" = "提交";
+"about.links" = "链接";
+"about.sourceCode" = "源代码";
+"about.license" = "许可证";

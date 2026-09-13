@@ -39,6 +39,7 @@ jobs:
             -configuration Debug \
             -destination 'generic/platform=macOS' \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            GIT_COMMIT="$GITHUB_SHA" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             build

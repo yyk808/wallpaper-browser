@@ -14,6 +14,7 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$project_dir"
+git_commit="$(git rev-parse HEAD)"
 
 settings="$(xcodebuild \
   -project wallpaper-browser.xcodeproj \
@@ -36,6 +37,7 @@ xcodebuild archive \
   -destination 'generic/platform=macOS' \
   -archivePath "$archive_path" \
   -derivedDataPath "$derived_data_path" \
+  GIT_COMMIT="$git_commit" \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO
 

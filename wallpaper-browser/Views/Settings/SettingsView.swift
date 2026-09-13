@@ -6,6 +6,7 @@ private enum SettingsDestination: String, Hashable {
   case steam
   case storage
   case appearance
+  case about
 }
 
 struct SettingsView: View {
@@ -29,10 +30,12 @@ struct SettingsView: View {
           .tag(SettingsDestination.storage)
         Label("settings.appearance", systemImage: "paintbrush")
           .tag(SettingsDestination.appearance)
+        Label("settings.about", systemImage: "info.circle")
+          .tag(SettingsDestination.about)
       }
       .pickerStyle(.segmented)
       .labelsHidden()
-      .frame(maxWidth: 430)
+      .frame(maxWidth: 520)
       .padding(.horizontal, 24)
       .padding(.vertical, 14)
 
@@ -47,6 +50,8 @@ struct SettingsView: View {
         StorageSettingsPane()
       case .appearance:
         appearancePane
+      case .about:
+        aboutPane
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -94,6 +99,94 @@ struct SettingsView: View {
         }
       }
     }
+  }
+
+  private var aboutPane: some View {
+    SettingsPane(
+      title: "settings.about",
+      subtitle: "settings.about.subtitle"
+    ) {
+      VStack(alignment: .leading, spacing: 22) {
+        HStack(alignment: .center, spacing: 18) {
+          Image(nsImage: applicationIcon)
+            .resizable()
+            .interpolation(.high)
+            .frame(width: 92, height: 92)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+          VStack(alignment: .leading, spacing: 6) {
+            Text("Wallpaper Browser")
+              .font(.title)
+              .fontWeight(.semibold)
+            Text("about.description")
+              .foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+
+        Divider()
+
+        SettingsSection(title: "about.information") {
+          SettingsRow(label: "about.version") {
+            Text(appVersion)
+              .monospacedDigit()
+          }
+
+          SettingsRow(label: "about.build") {
+            Text(buildNumber)
+              .monospacedDigit()
+          }
+
+          SettingsRow(label: "about.commit") {
+            Text(commitIdentifier)
+              .font(.system(.body, design: .monospaced))
+              .textSelection(.enabled)
+          }
+        }
+
+        Divider()
+
+        SettingsSection(title: "about.links") {
+          SettingsRow(label: "about.sourceCode") {
+            Link(
+              "github.com/yyk808/wallpaper-browser",
+              destination: URL(string: "https://github.com/yyk808/wallpaper-browser")!
+            )
+          }
+
+          SettingsRow(label: "about.license") {
+            Link(
+              "AGPL-3.0-only",
+              destination: URL(string: "https://github.com/yyk808/wallpaper-browser/blob/main/LICENSE")!
+            )
+          }
+        }
+      }
+    }
+  }
+
+  private var applicationIcon: NSImage {
+    NSImage(named: NSImage.applicationIconName) ?? NSImage(named: "AppIcon") ?? NSImage()
+  }
+
+  private var appVersion: String {
+    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    let value = version?.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let value, !value.isEmpty else { return "v1.0.0" }
+    return value.hasPrefix("v") ? value : "v\(value)"
+  }
+
+  private var buildNumber: String {
+    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+    let value = build?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return value.flatMap { $0.isEmpty ? nil : $0 } ?? "1"
+  }
+
+  private var commitIdentifier: String {
+    let commit = Bundle.main.object(forInfoDictionaryKey: "GitCommit") as? String
+    let value = commit?.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let value, !value.isEmpty else { return "unknown" }
+    return String(value.prefix(7))
   }
 
   private var workshopPane: some View {

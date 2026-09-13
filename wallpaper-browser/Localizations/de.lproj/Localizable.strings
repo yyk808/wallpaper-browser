@@ -230,3 +230,14 @@
 "favorites.removeAuthor" = "Ersteller aus Favoriten entfernen";
 "favorites.open" = "Öffnen";
 "favorites.viewAuthorWorks" = "Werke ansehen";
+
+"settings.about" = "Über";
+"settings.about.subtitle" = "Informationen zu Wallpaper Browser.";
+"about.description" = "Eine native macOS-App zum Entdecken, Anzeigen und Herunterladen von Wallpaper-Engine-Workshop-Inhalten.";
+"about.information" = "Informationen";
+"about.version" = "Version";
+"about.build" = "Build";
+"about.commit" = "Commit";
+"about.links" = "Links";
+"about.sourceCode" = "Quellcode";
+"about.license" = "Lizenz";
