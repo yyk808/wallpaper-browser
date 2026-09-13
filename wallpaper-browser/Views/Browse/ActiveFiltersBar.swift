@@ -7,6 +7,13 @@ struct ActiveFiltersBar: View {
   var body: some View {
     ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: 6) {
+        if let type = viewModel.filters.wallpaperType {
+          FilterToken(title: appSettings.localized("type.\(type)")) {
+            var filters = viewModel.filters
+            filters.wallpaperType = nil
+            viewModel.applyFilters(filters)
+          }
+        }
         ForEach(visibleRatings, id: \.self) { rating in
           FilterToken(title: ratingTitle(rating)) {
             viewModel.removeRating(rating)

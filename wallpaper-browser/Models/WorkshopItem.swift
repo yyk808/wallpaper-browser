@@ -13,6 +13,8 @@ struct WorkshopItem: Identifiable, Codable, Hashable, Sendable {
   let ratingScore: Double?
   let positiveVotes: Int
   let negativeVotes: Int
+  let numComments: Int
+  let fileType: Int
 
   init(
     id: String,
@@ -26,7 +28,9 @@ struct WorkshopItem: Identifiable, Codable, Hashable, Sendable {
     fileSize: Int64,
     ratingScore: Double? = nil,
     positiveVotes: Int = 0,
-    negativeVotes: Int = 0
+    negativeVotes: Int = 0,
+    numComments: Int = 0,
+    fileType: Int = 0
   ) {
     self.id = id
     self.creatorSteamID = creatorSteamID
@@ -40,6 +44,8 @@ struct WorkshopItem: Identifiable, Codable, Hashable, Sendable {
     self.ratingScore = ratingScore
     self.positiveVotes = positiveVotes
     self.negativeVotes = negativeVotes
+    self.numComments = numComments
+    self.fileType = fileType
   }
 
   enum CodingKeys: String, CodingKey {
@@ -55,6 +61,8 @@ struct WorkshopItem: Identifiable, Codable, Hashable, Sendable {
     case ratingScore
     case positiveVotes
     case negativeVotes
+    case numComments
+    case fileType
   }
 
   init(from decoder: Decoder) throws {
@@ -71,7 +79,12 @@ struct WorkshopItem: Identifiable, Codable, Hashable, Sendable {
     ratingScore = try container.decodeIfPresent(Double.self, forKey: .ratingScore)
     positiveVotes = try container.decodeIfPresent(Int.self, forKey: .positiveVotes) ?? 0
     negativeVotes = try container.decodeIfPresent(Int.self, forKey: .negativeVotes) ?? 0
+    numComments = try container.decodeIfPresent(Int.self, forKey: .numComments) ?? 0
+    fileType = try container.decodeIfPresent(Int.self, forKey: .fileType) ?? 0
   }
+
+  var isCollection: Bool { fileType == 2 }
+  var isVideo: Bool { !isCollection && tags.contains { $0.caseInsensitiveCompare("Video") == .orderedSame } }
 
   var ratingText: String? {
     guard let ratingScore else { return nil }
@@ -82,6 +95,19 @@ struct WorkshopItem: Identifiable, Codable, Hashable, Sendable {
   var authorText: String? {
     if let creatorName, !creatorName.isEmpty { return creatorName }
     return creatorSteamID
+  }
+
+  var workshopPageURL: URL? {
+    guard !id.isEmpty,
+      var components = URLComponents(
+        string: "https://steamcommunity.com/sharedfiles/filedetails/"
+      )
+    else {
+      return nil
+    }
+
+    components.queryItems = [URLQueryItem(name: "id", value: id)]
+    return components.url
   }
 
   var genreTags: [String] {
@@ -97,8 +123,18 @@ enum WorkshopSortOrder: Int, CaseIterable, Identifiable, Sendable {
   case newest
   case highestRated
   case mostSubscribed
+  case recentlyUpdated
+  case mostLiked
+  case unrated
 
   var id: Int { rawValue }
+
+  var resetsBrowsePosition: Bool {
+    switch self {
+    case .trending, .newest, .recentlyUpdated, .unrated: true
+    case .highestRated, .mostSubscribed, .mostLiked: false
+    }
+  }
 
   var localizationKey: String {
     switch self {
@@ -106,6 +142,9 @@ enum WorkshopSortOrder: Int, CaseIterable, Identifiable, Sendable {
     case .newest: "workshop.sort.newest"
     case .highestRated: "workshop.sort.highestRated"
     case .mostSubscribed: "workshop.sort.mostSubscribed"
+    case .recentlyUpdated: "workshop.sort.recentlyUpdated"
+    case .mostLiked: "workshop.sort.mostLiked"
+    case .unrated: "workshop.sort.unrated"
     }
   }
 
@@ -115,6 +154,9 @@ enum WorkshopSortOrder: Int, CaseIterable, Identifiable, Sendable {
     case .newest: 1
     case .highestRated: 0
     case .mostSubscribed: 9
+    case .recentlyUpdated: 21
+    case .mostLiked: 11
+    case .unrated: 8
     }
   }
 }
@@ -139,7 +181,9 @@ enum WorkshopTrendPeriod: Int, CaseIterable, Identifiable, Sendable {
   }
 }
 
-struct WorkshopFilters: Equatable, Hashable, Sendable {
+struct WorkshopFilters: Codable, Equatable, Hashable, Sendable {
+  var wallpaperType: String?
+  static let wallpaperTypes = ["Scene", "Video", "Web", "Application"]
   var ratings: Set<String> = ["Everyone"]
   var resolution: String?
   var genres: Set<String> = []
@@ -160,14 +204,28 @@ struct WorkshopFilters: Equatable, Hashable, Sendable {
     "Retro", "Sci-Fi", "Sports", "Technology", "Television", "Vehicle",
   ]
 
+  private static let preferencesKey = "workshop.browseFilters.v1"
+
+  static func load(from defaults: UserDefaults) -> WorkshopFilters {
+    guard let data = defaults.data(forKey: preferencesKey),
+      var filters = try? JSONDecoder().decode(WorkshopFilters.self, from: data)
+    else { return WorkshopFilters() }
+    if let type = filters.wallpaperType, !wallpaperTypes.contains(type) { filters.wallpaperType = nil }
+    return filters
+  }
+
+  func save(to defaults: UserDefaults) {
+    if let data = try? JSONEncoder().encode(self) { defaults.set(data, forKey: Self.preferencesKey) }
+  }
+
   var activeCount: Int {
     let defaultRating = ratings == ["Everyone"]
-    return (defaultRating ? 0 : ratings.count) + (resolution == nil ? 0 : 1) + genres.count
+    return (wallpaperType == nil ? 0 : 1) + (defaultRating ? 0 : ratings.count) + (resolution == nil ? 0 : 1) + genres.count
       + excludedGenres.count
   }
 
   var isDefault: Bool {
-    ratings == ["Everyone"] && resolution == nil && genres.isEmpty && excludedGenres.isEmpty
+    wallpaperType == nil && ratings == ["Everyone"] && resolution == nil && genres.isEmpty && excludedGenres.isEmpty
   }
 }
 

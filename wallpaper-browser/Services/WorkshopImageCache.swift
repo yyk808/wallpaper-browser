@@ -12,6 +12,7 @@ final class WorkshopImageCache: ObservableObject {
 
   private let memoryCache = NSCache<NSURL, NSImage>()
   private let diskCache: WorkshopImageDiskCache
+  private var inFlightLoads: [ImageLoadKey: InFlightImageLoad] = [:]
 
   private static let maximumSizeKey = "WorkshopPreviewCacheMaximumSizeMB"
   private static let defaultMaximumSizeMB = 512
@@ -38,8 +39,154 @@ final class WorkshopImageCache: ObservableObject {
     Int(maximumDiskUsageBytes / 1_024 / 1_024)
   }
 
-  func image(for url: URL) async -> NSImage? {
-    if let image = memoryCache.object(forKey: url as NSURL) {
+  func memoryImage(for url: URL) -> NSImage? {
+    memoryCache.object(forKey: url as NSURL)
+  }
+
+  func loadImage(for url: URL, bypassCache: Bool) async -> NSImage? {
+    guard !Task.isCancelled else { return nil }
+
+    let key = ImageLoadKey(url: url, bypassCache: bypassCache)
+    if let inFlightLoad = inFlightLoads[key] {
+      return await waitForLoad(inFlightLoad, key: key)
+    }
+
+    if bypassCache {
+      let cachedLoadKey = ImageLoadKey(url: url, bypassCache: false)
+      cancelLoad(for: cachedLoadKey)
+    }
+
+    if !bypassCache, let image = memoryImage(for: url) {
+      return image
+    }
+
+    let id = UUID()
+    let task = makeLoadTask(for: url, bypassCache: bypassCache, key: key, id: id)
+    let inFlightLoad = InFlightImageLoad(id: id, task: task)
+    inFlightLoads[key] = inFlightLoad
+
+    return await waitForLoad(inFlightLoad, key: key)
+  }
+
+  private func makeLoadTask(
+    for url: URL,
+    bypassCache: Bool,
+    key: ImageLoadKey,
+    id: UUID
+  ) -> Task<NSImage?, Never> {
+    Task { @MainActor [weak self] in
+      guard let self else { return nil }
+
+      let image: NSImage?
+      if !bypassCache, let cachedImage = await self.cachedImage(for: url) {
+        image = cachedImage
+      } else if Task.isCancelled {
+        image = nil
+      } else {
+        var request = URLRequest(url: url)
+        request.cachePolicy = bypassCache
+          ? .reloadIgnoringLocalCacheData
+          : .useProtocolCachePolicy
+
+        do {
+          let (data, response) = try await URLSession.shared.data(for: request)
+          guard !Task.isCancelled,
+            let httpResponse = response as? HTTPURLResponse,
+            (200..<300).contains(httpResponse.statusCode)
+          else {
+            image = nil
+            self.completeLoad(key: key, id: id, result: nil)
+            return nil
+          }
+          image = await self.cacheImage(from: data, for: url)
+        } catch {
+          image = nil
+        }
+      }
+
+      self.completeLoad(key: key, id: id, result: image)
+      return image
+    }
+  }
+
+  private func waitForLoad(_ load: InFlightImageLoad, key: ImageLoadKey) async -> NSImage? {
+    let waiterID = UUID()
+    return await withTaskCancellationHandler(operation: {
+      await withCheckedContinuation { (continuation: CheckedContinuation<NSImage?, Never>) in
+        guard !Task.isCancelled else {
+          if load.waiters.isEmpty, let currentLoad = inFlightLoads[key], currentLoad === load {
+            cancelLoad(for: key, expectedID: load.id)
+          }
+          continuation.resume(returning: nil)
+          return
+        }
+
+        guard !load.isFinished else {
+          continuation.resume(returning: load.result)
+          return
+        }
+
+        guard let currentLoad = inFlightLoads[key], currentLoad === load else {
+          continuation.resume(returning: nil)
+          return
+        }
+
+        load.waiters[waiterID] = continuation
+      }
+    }, onCancel: { [weak self] in
+      Task { @MainActor [weak self] in
+        self?.cancelWaiter(key: key, loadID: load.id, waiterID: waiterID)
+      }
+    })
+  }
+
+  private func cancelWaiter(key: ImageLoadKey, loadID: UUID, waiterID: UUID) {
+    guard let load = inFlightLoads[key], load.id == loadID,
+      let continuation = load.waiters.removeValue(forKey: waiterID)
+    else { return }
+
+    continuation.resume(returning: nil)
+    if load.waiters.isEmpty {
+      cancelLoad(for: key, expectedID: loadID)
+    }
+  }
+
+  private func cancelLoad(for key: ImageLoadKey) {
+    guard let load = inFlightLoads[key] else { return }
+    cancelLoad(for: key, expectedID: load.id)
+  }
+
+  private func cancelLoad(for key: ImageLoadKey, expectedID: UUID) {
+    guard let load = inFlightLoads[key], load.id == expectedID else { return }
+
+    inFlightLoads.removeValue(forKey: key)
+    load.isFinished = true
+    load.result = nil
+    load.task.cancel()
+
+    let waiters = Array(load.waiters.values)
+    load.waiters.removeAll()
+    for continuation in waiters {
+      continuation.resume(returning: nil)
+    }
+  }
+
+  private func completeLoad(key: ImageLoadKey, id: UUID, result: NSImage?) {
+    guard let load = inFlightLoads[key], load.id == id else { return }
+
+    inFlightLoads.removeValue(forKey: key)
+    load.isFinished = true
+    load.result = result
+
+    let waiters = Array(load.waiters.values)
+    load.waiters.removeAll()
+    for continuation in waiters {
+      continuation.resume(returning: result)
+    }
+  }
+
+  private func cachedImage(for url: URL) async -> NSImage? {
+    if let image = memoryImage(for: url) {
       return image
     }
 
@@ -55,8 +202,10 @@ final class WorkshopImageCache: ObservableObject {
     return decodedImage.image
   }
 
-  func image(from data: Data, for url: URL) async -> NSImage? {
-    guard !Task.isCancelled, let decodedImage = await Self.decode(data) else { return nil }
+  private func cacheImage(from data: Data, for url: URL) async -> NSImage? {
+    guard !Task.isCancelled, let decodedImage = await Self.decode(data), !Task.isCancelled else {
+      return nil
+    }
     memoryCache.setObject(
       decodedImage.image,
       forKey: url as NSURL,
@@ -83,6 +232,9 @@ final class WorkshopImageCache: ObservableObject {
   }
 
   func clear() {
+    for key in Array(inFlightLoads.keys) {
+      cancelLoad(for: key)
+    }
     memoryCache.removeAllObjects()
     diskUsageBytes = 0
     Task { [weak self, diskCache] in
@@ -116,16 +268,10 @@ final class WorkshopImageCache: ObservableObject {
   }
 
   nonisolated private static func decode(_ data: Data) async -> DecodedImage? {
-    await Task.detached(priority: .userInitiated) {
-      guard let image = NSImage(data: data) else { return nil }
-      return DecodedImage(
-        image: image,
-        memoryCost: decodedMemoryCost(for: image, fallback: data.count)
-      )
-    }.value
+    await WorkshopImageDecoder.shared.decode(data)
   }
 
-  nonisolated private static func decodedMemoryCost(for image: NSImage, fallback: Int) -> Int {
+  nonisolated fileprivate static func decodedMemoryCost(for image: NSImage, fallback: Int) -> Int {
     let largestRepresentationCost = image.representations.reduce(0) { currentCost, representation in
       let pixelsWide = max(representation.pixelsWide, 1)
       let pixelsHigh = max(representation.pixelsHigh, 1)
@@ -141,6 +287,39 @@ final class WorkshopImageCache: ObservableObject {
   }
 }
 
+private struct ImageLoadKey: Hashable {
+  let url: URL
+  let bypassCache: Bool
+}
+
+@MainActor
+private final class InFlightImageLoad {
+  let id: UUID
+  let task: Task<NSImage?, Never>
+  var isFinished = false
+  var result: NSImage?
+  var waiters: [UUID: CheckedContinuation<NSImage?, Never>] = [:]
+
+  init(id: UUID, task: Task<NSImage?, Never>) {
+    self.id = id
+    self.task = task
+  }
+}
+
+private actor WorkshopImageDecoder {
+  static let shared = WorkshopImageDecoder()
+
+  func decode(_ data: Data) -> DecodedImage? {
+    autoreleasepool {
+      guard let image = NSImage(data: data) else { return nil }
+      return DecodedImage(
+        image: image,
+        memoryCost: WorkshopImageCache.decodedMemoryCost(for: image, fallback: data.count)
+      )
+    }
+  }
+}
+
 private struct DecodedImage: @unchecked Sendable {
   let image: NSImage
   let memoryCost: Int
@@ -150,7 +329,9 @@ private final class WorkshopImageDiskCache: @unchecked Sendable {
   private let directoryURL: URL
   private let queue = DispatchQueue(label: "neon.wallpaper-browser.preview-cache", qos: .utility)
   private var cachedFiles: [URL: CachedFile] = [:]
+  private var metadataWriteDates: [URL: Date] = [:]
   private var diskUsageBytes: Int64?
+  private static let metadataWriteInterval: TimeInterval = 60 * 60
 
   init(directoryURL: URL) {
     self.directoryURL = directoryURL
@@ -168,18 +349,30 @@ private final class WorkshopImageDiskCache: @unchecked Sendable {
     await perform {
       self.loadIndexIfNeeded()
       let fileURL = self.cacheFileURL(for: url)
-      guard let data = try? Data(contentsOf: fileURL) else {
+      guard let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) else {
         if let removedFile = self.cachedFiles.removeValue(forKey: fileURL) {
           self.diskUsageBytes = max(0, (self.diskUsageBytes ?? 0) - removedFile.size)
         }
+        self.metadataWriteDates.removeValue(forKey: fileURL)
         return nil
       }
 
       let modifiedAt = Date()
-      try? FileManager.default.setAttributes(
-        [.modificationDate: modifiedAt],
-        ofItemAtPath: fileURL.path
-      )
+      let lastMetadataWrite =
+        self.metadataWriteDates[fileURL]
+        ?? self.cachedFiles[fileURL]?.modifiedAt
+        ?? .distantPast
+      if modifiedAt.timeIntervalSince(lastMetadataWrite) >= Self.metadataWriteInterval {
+        do {
+          try FileManager.default.setAttributes(
+            [.modificationDate: modifiedAt],
+            ofItemAtPath: fileURL.path
+          )
+          self.metadataWriteDates[fileURL] = modifiedAt
+        } catch {
+          // A cache hit should still succeed if updating its LRU metadata fails.
+        }
+      }
       self.cachedFiles[fileURL] = CachedFile(
         url: fileURL,
         size: Int64(data.count),
@@ -207,6 +400,7 @@ private final class WorkshopImageDiskCache: @unchecked Sendable {
           size: size,
           modifiedAt: modifiedAt
         )
+        self.metadataWriteDates[fileURL] = modifiedAt
         self.diskUsageBytes = max(0, (self.diskUsageBytes ?? 0) - previousSize + size)
         self.trimIfNeeded(maximumSizeBytes: maximumSizeBytes, usesHysteresis: true)
       } catch {
@@ -232,6 +426,7 @@ private final class WorkshopImageDiskCache: @unchecked Sendable {
         withIntermediateDirectories: true
       )
       self.cachedFiles = [:]
+      self.metadataWriteDates = [:]
       self.diskUsageBytes = 0
       return 0
     }
@@ -283,6 +478,7 @@ private final class WorkshopImageDiskCache: @unchecked Sendable {
         return (url, file)
       }
     )
+    metadataWriteDates = cachedFiles.mapValues(\.modifiedAt)
     diskUsageBytes = cachedFiles.values.reduce(0) { $0 + $1.size }
   }
 
@@ -295,6 +491,7 @@ private final class WorkshopImageDiskCache: @unchecked Sendable {
       do {
         try FileManager.default.removeItem(at: file.url)
         cachedFiles.removeValue(forKey: file.url)
+        metadataWriteDates.removeValue(forKey: file.url)
         diskUsageBytes = max(0, (diskUsageBytes ?? 0) - file.size)
       } catch {
         continue

@@ -4,56 +4,207 @@ import SwiftUI
 struct WorkshopDetailView: View {
   @EnvironmentObject private var steamCMD: SteamCMDService
   @EnvironmentObject private var appSettings: AppSettings
+  @EnvironmentObject private var explorer: WorkshopExplorer
+  @EnvironmentObject private var favoriteLibrary: FavoriteLibrary
   @StateObject private var commentsViewModel: WorkshopCommentsViewModel
   @State private var isShowingPreview = false
-  @State private var metadataColumnHeight: CGFloat = 320
-  let item: WorkshopItem
+  private let seedItem: WorkshopItem
+  @State private var details: WorkshopDetails?
+  @State private var creator: WorkshopCreator?
+  @State private var detailsError: String?
+  @State private var detailsAttempt = 0
+  @State private var selectedPreviewURL: URL?
+  private var item: WorkshopItem { details?.item ?? seedItem }
+  private var previewURL: URL? { selectedPreviewURL ?? item.previewURL }
+  let dismiss: () -> Void
   let download: () -> Void
+  let showDownloads: () -> Void
+  let setSidebarVisible: (Bool) -> Void
+  let transitionSourceID: String
+  let transitionNamespace: Namespace.ID
 
-  init(item: WorkshopItem, download: @escaping () -> Void) {
-    self.item = item
+  init(
+    item: WorkshopItem,
+    dismiss: @escaping () -> Void,
+    download: @escaping () -> Void,
+    showDownloads: @escaping () -> Void,
+    setSidebarVisible: @escaping (Bool) -> Void,
+    transitionSourceID: String,
+    transitionNamespace: Namespace.ID
+  ) {
+    self.seedItem = item
+    self.dismiss = dismiss
     self.download = download
+    self.showDownloads = showDownloads
+    self.setSidebarVisible = setSidebarVisible
+    self.transitionSourceID = transitionSourceID
+    self.transitionNamespace = transitionNamespace
     _commentsViewModel = StateObject(wrappedValue: WorkshopCommentsViewModel(item: item))
   }
 
   private var record: DownloadRecord? { steamCMD.record(for: item.id) }
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 24) {
-        HStack(alignment: .top, spacing: 26) {
-          previewButton
-            .layoutPriority(1)
+    VStack(spacing: 0) {
+      detailHeader
+      Divider()
 
-          metadataColumn
-            .frame(minWidth: 220, idealWidth: 260, maxWidth: 300, alignment: .topLeading)
-            .background {
-              GeometryReader { geometry in
-                Color.clear.preference(
-                  key: MetadataColumnHeightPreferenceKey.self,
-                  value: geometry.size.height
-                )
-              }
+      GeometryReader { geometry in
+        HStack(alignment: .top, spacing: 30) {
+          previewColumn
+            .frame(maxWidth: min(560, max(0, geometry.size.height - 56)))
+            .frame(
+              minWidth: 460,
+              maxWidth: 760,
+              maxHeight: .infinity,
+              alignment: .topLeading
+            )
+
+          ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+              metadataColumn
+
+              Divider()
+              commentsSection
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.trailing, 10)
+          }
+          .frame(
+            minWidth: 300,
+            idealWidth: 360,
+            maxWidth: 420,
+            maxHeight: .infinity,
+            alignment: .topLeading
+          )
         }
-        .frame(maxWidth: 980, alignment: .topLeading)
-        .onPreferenceChange(MetadataColumnHeightPreferenceKey.self) { height in
-          metadataColumnHeight = max(320, height)
-        }
-
-        Divider()
-        commentsSection
+        .padding(28)
+        .frame(maxWidth: 1280, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
       }
-      .padding(24)
-      .frame(maxWidth: 1040, alignment: .leading)
-      .frame(maxWidth: .infinity)
     }
-    .navigationTitle("detail.title")
+    .navigationTitle("")
+    .navigationBarBackButtonHidden(true)
+    .onDisappear {
+      Task { @MainActor in
+        await Task.yield()
+        setSidebarVisible(true)
+      }
+    }
     .task {
       await commentsViewModel.loadInitial()
     }
+    .task(id: detailsAttempt) {
+      detailsError = nil
+      do {
+        let loaded = try await WorkshopAPIClient().fetchDetails(id: seedItem.id)
+        try Task.checkCancellation()
+        details = loaded
+        if loaded.item.previewURL == nil {
+          selectedPreviewURL = loaded.previews.first(where: { $0.kind == .image })?.url
+        }
+        if let id = loaded.item.creatorSteamID {
+          let profile = try? await WorkshopAPIClient().fetchCreator(id: id)
+          if !Task.isCancelled {
+            creator = profile
+            favoriteLibrary.refreshAuthor(
+              id: id,
+              fallbackName: loaded.item.authorText ?? id,
+              creator: profile
+            )
+          }
+        }
+      } catch {
+        if !Task.isCancelled { detailsError = error.localizedDescription }
+      }
+    }
     .sheet(isPresented: $isShowingPreview) {
-      EnlargedWorkshopPreview(url: item.previewURL, title: item.title)
+      EnlargedWorkshopPreview(url: previewURL, title: item.title)
+    }
+  }
+
+  private var detailHeader: some View {
+    ZStack {
+      Text("detail.title")
+        .font(.headline)
+
+      HStack {
+        Button {
+          dismiss()
+        } label: {
+          Image(systemName: "chevron.backward")
+            .frame(width: 20, height: 20)
+        }
+        .buttonStyle(.borderless)
+        .keyboardShortcut(.cancelAction)
+        .help("common.cancel")
+
+        Spacer()
+
+        HStack(spacing: 8) {
+          Button {
+            if let workshopPageURL = item.workshopPageURL {
+              NSWorkspace.shared.open(workshopPageURL)
+            }
+          } label: {
+            Label("home.openInWorkshop", systemImage: "arrow.up.right.square")
+          }
+          .buttonStyle(.bordered)
+          .disabled(item.workshopPageURL == nil)
+          .help("home.openInWorkshop")
+
+          Button(action: showDownloads) {
+            Label("nav.downloads", systemImage: "arrow.down.circle")
+              .overlay(alignment: .topTrailing) {
+                if steamCMD.activeDownloadCount > 0 {
+                  Text("\(steamCMD.activeDownloadCount)")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(minWidth: 13, minHeight: 13)
+                    .background(Color.accentColor, in: Circle())
+                    .offset(x: 7, y: -7)
+                }
+              }
+          }
+          .buttonStyle(.bordered)
+        }
+      }
+    }
+    .padding(.horizontal, 18)
+    .frame(height: 48)
+  }
+
+  private var previewColumn: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      previewButton
+      if let details, details.previews.contains(where: { $0.kind == .videoLink || $0.url != item.previewURL }) {
+        ScrollView(.horizontal) {
+          HStack(spacing: 10) {
+            ForEach(details.previews) { media in
+              if media.kind == .image {
+                Button { selectedPreviewURL = media.url } label: {
+                  WorkshopPreviewImage(url: media.url, allowsAnimation: false)
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay {
+                      RoundedRectangle(cornerRadius: 6)
+                        .stroke(previewURL == media.url ? Color.accentColor : .clear, lineWidth: 2)
+                    }
+                }.buttonStyle(.plain).help("detail.enlargePreview")
+              } else {
+                Link(destination: media.url) {
+                  Label("explore.videoPreview", systemImage: "play.rectangle")
+                    .padding(10)
+                }
+              }
+            }
+          }.padding(3)
+        }
+      }
+      Button { explorer.open(.collections(containing: item.id)) } label: {
+        Label("explore.containing", systemImage: "square.stack")
+      }.buttonStyle(.bordered)
+      Spacer(minLength: 0)
     }
   }
 
@@ -62,7 +213,7 @@ struct WorkshopDetailView: View {
       isShowingPreview = true
     } label: {
       ZStack(alignment: .topTrailing) {
-        WorkshopPreviewImage(url: item.previewURL)
+        WorkshopPreviewImage(url: previewURL, allowsAnimation: true)
 
         Image(systemName: "arrow.up.left.and.arrow.down.right")
           .font(.system(size: 12, weight: .semibold))
@@ -70,10 +221,18 @@ struct WorkshopDetailView: View {
           .background(.regularMaterial, in: Circle())
           .padding(10)
       }
-      .frame(maxWidth: .infinity)
-      .frame(height: metadataColumnHeight)
+      .aspectRatio(1, contentMode: .fit)
+      .frame(maxWidth: 560)
       .background(Color(nsColor: .controlBackgroundColor))
-      .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+      .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .stroke(Color.primary.opacity(0.07), lineWidth: 1)
+      }
+      .workshopDetailTransitionDestination(
+        id: transitionSourceID,
+        in: transitionNamespace
+      )
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
@@ -84,9 +243,9 @@ struct WorkshopDetailView: View {
     VStack(alignment: .leading, spacing: 14) {
       VStack(alignment: .leading, spacing: 5) {
         Text(item.title)
-          .font(.title2)
+          .font(.title2.weight(.bold))
           .fontWeight(.semibold)
-          .textSelection(.enabled)
+          .workshopCopyable(item.title)
           .fixedSize(horizontal: false, vertical: true)
 
         let genres = item.genreTags.prefix(3).joined(separator: " · ")
@@ -97,16 +256,26 @@ struct WorkshopDetailView: View {
         }
       }
 
-      downloadButton
+      quickStats
+      if item.isVideo {
+        downloadButton
+      } else {
+        Label("explore.unsupported", systemImage: "info.circle")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+      if let detailsError {
+        HStack {
+          Text(appSettings.localized(detailsError)).font(.caption).foregroundStyle(.secondary)
+          Button("common.retry") { detailsAttempt += 1 }
+        }
+      } else if details == nil {
+        ProgressView().controlSize(.small)
+      }
 
       if !item.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         Divider()
         MetadataSection(title: "detail.summary") {
-          Text(item.summary)
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .lineLimit(5)
-            .textSelection(.enabled)
+          WorkshopDescriptionView(text: details?.description ?? item.summary)
         }
       }
 
@@ -114,7 +283,37 @@ struct WorkshopDetailView: View {
       MetadataSection(title: "detail.information") {
         VStack(alignment: .leading, spacing: 8) {
           if let authorText = item.authorText {
-            DetailRow(label: "detail.author", value: appSettings.localized(authorText))
+            HStack(spacing: 10) {
+              if let avatar = creator?.avatarURL {
+                AsyncImage(url: avatar) { image in image.resizable() } placeholder: { Color.secondary.opacity(0.15) }
+                  .frame(width: 30, height: 30).clipShape(Circle())
+              }
+              if let id = item.creatorSteamID {
+                Button { explorer.open(.author(id: id, name: authorText)) } label: {
+                  HStack {
+                    Text(authorText).lineLimit(2)
+                    Image(systemName: "chevron.forward").font(.caption)
+                  }
+                }.buttonStyle(.plain).foregroundStyle(Color.accentColor)
+                  .help("explore.authorWorks")
+              } else { Text(authorText) }
+              Spacer()
+              if let id = item.creatorSteamID {
+                Button {
+                  favoriteLibrary.toggleAuthor(id: id, name: authorText, creator: creator)
+                } label: {
+                  Image(systemName: favoriteLibrary.containsAuthor(id) ? "star.fill" : "star")
+                    .foregroundStyle(favoriteLibrary.containsAuthor(id) ? .yellow : .primary)
+                }
+                .buttonStyle(.borderless)
+                .help(favoriteLibrary.containsAuthor(id) ? "favorites.removeAuthor" : "favorites.addAuthor")
+                .accessibilityLabel(favoriteLibrary.containsAuthor(id) ? "favorites.removeAuthor" : "favorites.addAuthor")
+              }
+              if let url = creator?.profileURL {
+                Link(destination: url) { Image(systemName: "arrow.up.right.square") }
+                  .help("home.openInWorkshop")
+              }
+            }
           }
           if let ratingText = item.ratingText {
             DetailRow(label: "detail.rating", value: ratingText)
@@ -135,6 +334,18 @@ struct WorkshopDetailView: View {
             value: item.fileSize > 0
               ? ByteCountFormatter.string(fromByteCount: item.fileSize, countStyle: .file) : "common.unknown"
           )
+          if let date = details?.createdAt {
+            DetailRow(label: "explore.created", value: date.formatted(date: .abbreviated, time: .omitted))
+          }
+          if let date = details?.updatedAt {
+            DetailRow(label: "explore.updated", value: date.formatted(date: .abbreviated, time: .omitted))
+          }
+          if let views = details?.views {
+            DetailRow(label: "explore.views", value: formatCount(views))
+          }
+          if let favorites = details?.favorites {
+            DetailRow(label: "explore.favorites", value: formatCount(favorites))
+          }
           DetailRow(label: "detail.workshopID", value: item.id)
         }
       }
@@ -148,17 +359,39 @@ struct WorkshopDetailView: View {
             spacing: 7
           ) {
             ForEach(item.tags, id: \.self) { tag in
-              Text(tag)
-                .font(.caption)
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.quaternary, in: Capsule())
+              Button { explorer.open(.tag(tag)) } label: {
+                Text(tag)
+                  .font(.caption)
+                  .lineLimit(1)
+                  .padding(.horizontal, 8)
+                  .padding(.vertical, 4)
+                  .background(.quaternary, in: Capsule())
+              }.buttonStyle(.plain).foregroundStyle(Color.accentColor)
             }
           }
         }
       }
     }
+  }
+
+  private var quickStats: some View {
+    HStack(spacing: 16) {
+      if let ratingText = item.ratingText {
+        Label(ratingText, systemImage: "star.fill")
+          .foregroundStyle(.yellow)
+      }
+      if item.subscriptions > 0 {
+        Label(formatCount(item.subscriptions), systemImage: "person.2")
+      }
+      if item.fileSize > 0 {
+        Label(
+          ByteCountFormatter.string(fromByteCount: item.fileSize, countStyle: .file),
+          systemImage: "internaldrive"
+        )
+      }
+    }
+    .font(.caption)
+    .foregroundStyle(.secondary)
   }
 
   private var commentsSection: some View {
@@ -200,10 +433,9 @@ struct WorkshopDetailView: View {
           .frame(maxWidth: .infinity, minHeight: 72)
       } else {
         LazyVStack(alignment: .leading, spacing: 0) {
-          ForEach(Array(commentsViewModel.comments.enumerated()), id: \.element.id) {
-            index, comment in
+          ForEach(commentsViewModel.comments) { comment in
             WorkshopCommentRow(comment: comment)
-            if index < commentsViewModel.comments.count - 1 {
+            if comment.id != commentsViewModel.comments.last?.id {
               Divider().padding(.leading, 46)
             }
           }
@@ -237,6 +469,7 @@ struct WorkshopDetailView: View {
         )
       }
       .foregroundStyle(.secondary)
+      .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
     case .downloading:
       VStack(alignment: .leading, spacing: 6) {
         HStack(spacing: 8) {
@@ -262,7 +495,7 @@ struct WorkshopDetailView: View {
             .progressViewStyle(.linear)
         }
       }
-      .frame(maxWidth: 240)
+      .frame(maxWidth: .infinity)
     case .completed:
       Button {
         if let url = record?.localURL {
@@ -270,24 +503,32 @@ struct WorkshopDetailView: View {
         }
       } label: {
         Label("common.showInFinder", systemImage: "folder")
+          .frame(maxWidth: .infinity)
       }
       .buttonStyle(.borderedProminent)
+      .controlSize(.large)
     case .failed, .cancelled:
       Button(action: download) {
         Label("download.retry", systemImage: "arrow.clockwise")
+          .frame(maxWidth: .infinity)
       }
       .buttonStyle(.borderedProminent)
+      .controlSize(.large)
     case .none:
       if steamCMD.hasDownloaded(item.id) {
         Button(action: download) {
           Label("download.again", systemImage: "checkmark.circle")
+            .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
+        .controlSize(.large)
       } else {
         Button(action: download) {
-          Label("download.video", systemImage: "arrow.down.circle")
+          Label("download.video", systemImage: "arrow.down")
+            .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
+        .controlSize(.large)
       }
     }
   }
@@ -305,14 +546,6 @@ struct WorkshopDetailView: View {
   }
 }
 
-private struct MetadataColumnHeightPreferenceKey: PreferenceKey {
-  static let defaultValue: CGFloat = 320
-
-  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-    value = max(value, nextValue())
-  }
-}
-
 private struct EnlargedWorkshopPreview: View {
   @Environment(\.dismiss) private var dismiss
   let url: URL?
@@ -327,7 +560,9 @@ private struct EnlargedWorkshopPreview: View {
           dismiss()
         }
 
-      WorkshopPreviewImage(url: url)
+      WorkshopPreviewImage(url: url, allowsAnimation: true)
+        .aspectRatio(1, contentMode: .fit)
+        .frame(maxWidth: 760, maxHeight: 760)
         .padding(28)
         .allowsHitTesting(false)
     }
@@ -396,7 +631,7 @@ private struct WorkshopCommentRow: View {
         }
         Text(comment.text)
           .foregroundStyle(.secondary)
-          .textSelection(.enabled)
+          .workshopCopyable(comment.text)
           .fixedSize(horizontal: false, vertical: true)
       }
     }
@@ -423,7 +658,7 @@ private struct DetailRow: View {
       Text(value)
         .lineLimit(1)
         .truncationMode(.middle)
-        .textSelection(.enabled)
+        .workshopCopyable(value)
       Spacer()
     }
   }

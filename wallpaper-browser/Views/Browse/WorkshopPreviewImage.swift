@@ -5,13 +5,15 @@ import SwiftUI
 struct WorkshopPreviewImage: View {
   let url: URL?
   let refreshToken: Int
+  let allowsAnimation: Bool
 
   @StateObject private var loader = WorkshopImageLoader()
   @State private var isVisible = false
 
-  init(url: URL?, refreshToken: Int = 0) {
+  init(url: URL?, refreshToken: Int = 0, allowsAnimation: Bool = true) {
     self.url = url
     self.refreshToken = refreshToken
+    self.allowsAnimation = allowsAnimation
   }
 
   var body: some View {
@@ -20,7 +22,10 @@ struct WorkshopPreviewImage: View {
         .opacity(loader.image == nil ? 1 : 0)
 
       if let image = loader.image {
-        WorkshopNSImageView(image: image, allowsAnimation: isVisible)
+        WorkshopNSImageView(
+          image: image,
+          allowsAnimation: allowsAnimation && isVisible
+        )
       }
 
       if loader.isLoading && loader.image == nil {
@@ -48,16 +53,71 @@ struct WorkshopPreviewImage: View {
   }
 }
 
+extension View {
+  func workshopDetailTransitionSource(
+    id: String,
+    in namespace: Namespace.ID,
+    isActive: Bool
+  ) -> some View {
+    modifier(
+      WorkshopDetailMatchedGeometryModifier(
+        id: id,
+        namespace: namespace,
+        isActive: isActive
+      )
+    )
+  }
+
+  func workshopDetailTransitionDestination(
+    id: String,
+    in namespace: Namespace.ID
+  ) -> some View {
+    modifier(
+      WorkshopDetailMatchedGeometryModifier(
+        id: id,
+        namespace: namespace,
+        isActive: true
+      )
+    )
+  }
+}
+
+private struct WorkshopDetailMatchedGeometryModifier: ViewModifier {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  let id: String
+  let namespace: Namespace.ID
+  let isActive: Bool
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if reduceMotion || !isActive {
+      content
+    } else {
+      content.matchedGeometryEffect(
+        id: id,
+        in: namespace,
+        properties: .frame,
+        anchor: .center
+      )
+    }
+  }
+}
+
 @MainActor
 private final class WorkshopImageLoader: ObservableObject {
   @Published private(set) var image: NSImage?
   @Published private(set) var isLoading = false
   private var loadedURL: URL?
   private var loadedRefreshToken = 0
+  private var loadGeneration = 0
 
   func load(url: URL?, refreshToken: Int) async {
+    loadGeneration &+= 1
+    let generation = loadGeneration
+
     guard let url else {
       image = nil
+      isLoading = false
       loadedURL = nil
       loadedRefreshToken = refreshToken
       return
@@ -67,30 +127,28 @@ private final class WorkshopImageLoader: ObservableObject {
     loadedURL = url
     loadedRefreshToken = refreshToken
 
-    if !shouldRefresh, let cachedImage = await WorkshopImageCache.shared.image(for: url) {
+    if !shouldRefresh, let cachedImage = WorkshopImageCache.shared.memoryImage(for: url) {
       image = cachedImage
+      isLoading = false
       return
     }
 
-    if !shouldRefresh {
+    if !shouldRefresh, image != nil {
       image = nil
     }
 
     isLoading = true
-    defer { isLoading = false }
+    defer {
+      if loadGeneration == generation {
+        isLoading = false
+      }
+    }
 
-    do {
-      let (data, response) = try await URLSession.shared.data(from: url)
-      guard
-        let httpResponse = response as? HTTPURLResponse,
-        (200..<300).contains(httpResponse.statusCode),
-        let image = await WorkshopImageCache.shared.image(from: data, for: url)
-      else { return }
+    if let image = await WorkshopImageCache.shared.loadImage(
+      for: url,
+      bypassCache: shouldRefresh
+    ), !Task.isCancelled, loadGeneration == generation {
       self.image = image
-    } catch is CancellationError {
-      return
-    } catch {
-      return
     }
   }
 }
@@ -127,27 +185,20 @@ private struct WorkshopNSImageView: NSViewRepresentable {
   }
 }
 
+@MainActor
 private final class WorkshopImageView: NSImageView {
   var allowsAnimation = false {
     didSet { updatePlaybackState() }
   }
 
-  private var notificationObservers: [NSObjectProtocol] = []
-
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
-    observePlaybackConditions()
+    WorkshopPlaybackCoordinator.shared.register(self)
   }
 
   required init?(coder: NSCoder) {
     super.init(coder: coder)
-    observePlaybackConditions()
-  }
-
-  deinit {
-    for observer in notificationObservers {
-      NotificationCenter.default.removeObserver(observer)
-    }
+    WorkshopPlaybackCoordinator.shared.register(self)
   }
 
   override var intrinsicContentSize: NSSize {
@@ -159,7 +210,23 @@ private final class WorkshopImageView: NSImageView {
     updatePlaybackState()
   }
 
-  private func observePlaybackConditions() {
+  fileprivate func updatePlaybackState() {
+    let isWindowVisible = window.map {
+      $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible)
+    } ?? false
+    let isApplicationVisible = NSApp.isActive && !NSApp.isHidden
+    animates = allowsAnimation && isApplicationVisible && isWindowVisible
+  }
+}
+
+@MainActor
+private final class WorkshopPlaybackCoordinator {
+  static let shared = WorkshopPlaybackCoordinator()
+
+  private let imageViews = NSHashTable<WorkshopImageView>.weakObjects()
+  private var notificationObservers: [NSObjectProtocol] = []
+
+  private init() {
     let center = NotificationCenter.default
     let names: [Notification.Name] = [
       NSApplication.didBecomeActiveNotification,
@@ -172,15 +239,22 @@ private final class WorkshopImageView: NSImageView {
     ]
     notificationObservers = names.map { name in
       center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-        self?.updatePlaybackState()
+        // The main operation queue guarantees the callback runs on AppKit's main thread.
+        // Enter the actor synchronously so every visibility event does not allocate a task.
+        MainActor.assumeIsolated {
+          self?.updatePlaybackStates()
+        }
       }
     }
   }
 
-  private func updatePlaybackState() {
-    let isWindowVisible = window.map {
-      !$0.isMiniaturized && $0.occlusionState.contains(.visible)
-    } ?? false
-    animates = allowsAnimation && NSApp.isActive && isWindowVisible
+  func register(_ imageView: WorkshopImageView) {
+    imageViews.add(imageView)
+  }
+
+  private func updatePlaybackStates() {
+    for imageView in imageViews.allObjects {
+      imageView.updatePlaybackState()
+    }
   }
 }

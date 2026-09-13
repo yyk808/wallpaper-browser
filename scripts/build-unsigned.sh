@@ -49,9 +49,16 @@ fi
 xattr -cr "$app_path" 2>/dev/null || true
 find "$app_path" -name '._*' -type f -delete
 
+# Ad-hoc sign so LaunchServices/Dock treat the bundle as a proper app.
+if ! codesign --force --deep --sign - "$app_path" 2>/dev/null; then
+  echo "Warning: ad-hoc signing failed; the app will ship unsigned." >&2
+else
+  echo "Ad-hoc signed: $app_path"
+fi
+
 zip_path="$output_dir/WallpaperBrowser-${marketing_version}-universal-unsigned.zip"
 rm -f "$zip_path"
 (cd "$(dirname "$app_path")" && zip -q -r -X "$zip_path" "$(basename "$app_path")")
 
 echo "Created: $zip_path"
-echo "The app is unsigned. macOS may require Finder > Open on first launch."
+echo "The app carries an ad-hoc signature. macOS may still require Finder > Open on first launch."

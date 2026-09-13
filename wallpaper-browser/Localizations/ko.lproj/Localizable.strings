@@ -1,4 +1,7 @@
 "nav.wallpapers" = "배경화면";
+"nav.featured" = "추천";
+"home.viewAll" = "모두 보기";
+"home.openInWorkshop" = "창작마당에서 보기";
 "nav.workshop" = "창작마당";
 "nav.downloads" = "다운로드";
 "nav.settings" = "설정";
@@ -93,6 +96,8 @@
 "download.detail.cancelled" = "작업이 취소됨";
 "download.detail.steamDownloading" = "SteamCMD가 다운로드 및 검증 중";
 "download.detail.readingProject" = "project.json 읽는 중";
+"download.detail.findingVideo" = "비디오 파일 검색 및 추출 중";
+"download.detail.repairingWorkshopCache" = "Steam 다운로드 캐시 복구 후 다시 시도 중";
 "download.detail.interrupted" = "앱이 마지막으로 종료될 때 작업이 완료되지 않았습니다";
 "download.detail.preparingFiles" = "다운로드 완료, 파일 준비 중";
 "download.detail.verifyingFiles" = "파일 검증 중";
@@ -133,10 +138,16 @@
 "downloads.openFolder" = "배경화면 폴더 열기";
 "downloads.quickLook" = "훑어보기";
 "downloads.quickLookSpace" = "훑어보기(스페이스)";
+"downloads.previousVideo" = "이전 비디오";
+"downloads.nextVideo" = "다음 비디오";
+"downloads.preparingVideo" = "재생을 위해 비디오 준비 중…";
+"downloads.playbackUnavailable" = "이 비디오를 재생할 수 없습니다";
+"downloads.enterFullScreen" = "전체 화면 시작";
+"downloads.exitFullScreen" = "전체 화면 종료";
 "downloads.trashSelection" = "선택한 파일을 휴지통으로 이동";
 "extractor.error.missingProject" = "다운로드한 콘텐츠에 유효한 project.json이 없습니다.";
 "extractor.error.missingVideo" = "project.json에 지정된 동영상 파일을 찾을 수 없습니다.";
-"extractor.error.unplayableVideo" = "이 동영상 형식은 macOS에서 재생할 수 없습니다.";
+"download.warning.thirdPartyPlayer" = "이 동영상 형식은 macOS에서 직접 재생할 수 없습니다. VLC 또는 IINA 같은 타사 플레이어를 사용하세요.";
 "extractor.error.unsafePath" = "project.json이 안전하지 않은 파일 경로를 가리킵니다.";
 "extractor.error.unsupportedType" = "다운로드한 콘텐츠가 Video 유형이 아닙니다(%@).";
 "filter.genreMode" = "장르 필터 방식";
@@ -184,8 +195,14 @@
 "steamcmd.error.notExecutable" = "선택한 파일을 실행할 수 없습니다.";
 "steamcmd.error.notInstalled" = "SteamCMD를 찾지 못했습니다.";
 "steamcmd.error.notSignedIn" = "먼저 Steam에 로그인하세요.";
-"steamcmd.notFound.message" = "Homebrew로 설치하거나 아래에서 기존 실행 파일을 선택하세요.";
+"steamcmd.notFound.message" = "아래 버튼으로 Valve 공식 SteamCMD를 다운로드하거나 기존 실행 파일을 선택하세요.";
 "steamcmd.notFound.title" = "SteamCMD를 찾을 수 없음";
+"steamcmd.installButton" = "다운로드 및 설치";
+"steamcmd.installing" = "SteamCMD 다운로드 중…";
+"steamcmd.switchToManaged" = "내장 버전으로 전환";
+"steamcmd.error.installDownloadFailed" = "SteamCMD 다운로드에 실패했습니다: %@";
+"steamcmd.error.installExtractFailed" = "SteamCMD 압축 해제에 실패했습니다.";
+"steamcmd.error.installBinaryMissing" = "압축 해제 후 SteamCMD 실행 파일을 찾을 수 없습니다.";
 
 "settings.category" = "Settings category";
 "settings.steamAccount" = "Steam account";
@@ -195,3 +212,21 @@
 "settings.storage.subtitle" = "Extracted video files are stored here after SteamCMD completes a download.";
 "settings.clearCache" = "Clear cache";
 "filter.videoOnly" = "Video items only";
+
+"nav.favorites" = "즐겨찾기";
+"favorites.kind" = "즐겨찾기 유형";
+"favorites.collections" = "모음집";
+"favorites.authors" = "제작자";
+"favorites.summary" = "모음집 %@개 · 제작자 %@명";
+"favorites.emptyCollections" = "즐겨찾는 모음집이 없습니다";
+"favorites.emptyCollectionsDescription" = "모음집 목록이나 상세 페이지에서 별을 선택하면 여기에 저장됩니다.";
+"favorites.discoverCollections" = "모음집 둘러보기";
+"favorites.emptyAuthors" = "즐겨찾는 제작자가 없습니다";
+"favorites.emptyAuthorsDescription" = "배경화면 상세 또는 제작자 페이지에서 별을 선택해 저장하세요.";
+"favorites.discoverAuthors" = "배경화면 둘러보기";
+"favorites.addCollection" = "모음집 즐겨찾기";
+"favorites.removeCollection" = "모음집 즐겨찾기 해제";
+"favorites.addAuthor" = "제작자 즐겨찾기";
+"favorites.removeAuthor" = "제작자 즐겨찾기 해제";
+"favorites.open" = "열기";
+"favorites.viewAuthorWorks" = "제작자 작품 보기";

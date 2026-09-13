@@ -43,10 +43,13 @@ final class DownloadMetadataStore {
     if didChange { persist() }
   }
 
-  func markLocalFileRemoved(workshopID: String) {
-    guard entries[workshopID] != nil else { return }
-    entries[workshopID]?.localPath = nil
-    persist()
+  func markLocalFilesRemoved(workshopIDs: Set<String>) {
+    var didChange = false
+    for workshopID in workshopIDs where entries[workshopID]?.localPath != nil {
+      entries[workshopID]?.localPath = nil
+      didChange = true
+    }
+    if didChange { persist() }
   }
 
   private func persist() {

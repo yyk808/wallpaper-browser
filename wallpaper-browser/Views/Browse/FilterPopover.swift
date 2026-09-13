@@ -43,6 +43,14 @@ struct FilterPopover: View {
 
       ScrollView {
         VStack(alignment: .leading, spacing: 18) {
+          filterSection("filter.wallpaperType") {
+            Picker("filter.wallpaperType", selection: $draft.wallpaperType) {
+              Text("common.all").tag(String?.none)
+              ForEach(WorkshopFilters.wallpaperTypes, id: \.self) { type in
+                Text(appSettings.localized("type.\(type)")).tag(Optional(type))
+              }
+            }.labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
+          }
           filterSection("filter.contentRating") {
             HStack(spacing: 16) {
               ForEach(WorkshopFilters.contentRatings, id: \.self) { rating in
@@ -104,7 +112,7 @@ struct FilterPopover: View {
       Divider()
 
       HStack {
-        Text("filter.videoOnly")
+        Text("filter.remembered")
           .font(.caption)
           .foregroundStyle(.secondary)
         Spacer()
@@ -116,7 +124,7 @@ struct FilterPopover: View {
       }
       .padding(12)
     }
-    .frame(width: 370, height: 470)
+    .frame(width: 370, height: 540)
   }
 
   private var filteredGenres: [String] {

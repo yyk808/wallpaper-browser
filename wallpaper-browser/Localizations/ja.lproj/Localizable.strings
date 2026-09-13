@@ -1,4 +1,7 @@
 "nav.wallpapers" = "壁紙";
+"nav.featured" = "おすすめ";
+"home.viewAll" = "すべて見る";
+"home.openInWorkshop" = "ワークショップで見る";
 "nav.workshop" = "ワークショップ";
 "nav.downloads" = "ダウンロード";
 "nav.settings" = "設定";
@@ -93,6 +96,8 @@
 "download.detail.cancelled" = "タスクをキャンセルしました";
 "download.detail.steamDownloading" = "SteamCMDでダウンロードと検証中";
 "download.detail.readingProject" = "project.jsonを読み込み中";
+"download.detail.findingVideo" = "動画ファイルを検索して抽出中";
+"download.detail.repairingWorkshopCache" = "Steamのダウンロードキャッシュを修復して再試行中";
 "download.detail.interrupted" = "前回の終了時にタスクが未完了でした";
 "download.detail.preparingFiles" = "ダウンロード完了、ファイルを準備中";
 "download.detail.verifyingFiles" = "ファイルを検証中";
@@ -133,10 +138,16 @@
 "downloads.openFolder" = "壁紙フォルダを開く";
 "downloads.quickLook" = "クイックルック";
 "downloads.quickLookSpace" = "クイックルック（スペース）";
+"downloads.previousVideo" = "前のビデオ";
+"downloads.nextVideo" = "次のビデオ";
+"downloads.preparingVideo" = "再生用にビデオを準備中…";
+"downloads.playbackUnavailable" = "このビデオを再生できません";
+"downloads.enterFullScreen" = "フルスクリーンにする";
+"downloads.exitFullScreen" = "フルスクリーンを解除";
 "downloads.trashSelection" = "選択したファイルをゴミ箱に入れる";
 "extractor.error.missingProject" = "ダウンロード内容に有効なproject.jsonがありません。";
 "extractor.error.missingVideo" = "project.jsonで指定された動画ファイルが見つかりません。";
-"extractor.error.unplayableVideo" = "この動画形式はmacOSで再生できません。";
+"download.warning.thirdPartyPlayer" = "この動画形式はmacOSでは直接再生できません。VLCやIINAなどのサードパーティ製プレーヤーを使用してください。";
 "extractor.error.unsafePath" = "project.jsonが安全でないファイルパスを指しています。";
 "extractor.error.unsupportedType" = "ダウンロード内容はVideoタイプではありません（%@）。";
 "filter.genreMode" = "ジャンルのフィルター方法";
@@ -184,8 +195,14 @@
 "steamcmd.error.notExecutable" = "選択したファイルは実行できません。";
 "steamcmd.error.notInstalled" = "SteamCMDが見つかりません。";
 "steamcmd.error.notSignedIn" = "先にSteamにログインしてください。";
-"steamcmd.notFound.message" = "Homebrewでインストールするか、既存の実行ファイルを選択してください。";
+"steamcmd.notFound.message" = "下のボタンから Valve 公式の SteamCMD をダウンロードするか、既存の実行ファイルを選択してください。";
 "steamcmd.notFound.title" = "SteamCMDが見つかりません";
+"steamcmd.installButton" = "ダウンロードしてインストール";
+"steamcmd.installing" = "SteamCMDをダウンロード中…";
+"steamcmd.switchToManaged" = "内蔵バージョンに切り替え";
+"steamcmd.error.installDownloadFailed" = "SteamCMDのダウンロードに失敗しました：%@";
+"steamcmd.error.installExtractFailed" = "SteamCMDの解凍に失敗しました。";
+"steamcmd.error.installBinaryMissing" = "解凍後にSteamCMDの実行ファイルが見つかりませんでした。";
 
 "settings.category" = "Settings category";
 "settings.steamAccount" = "Steam account";
@@ -195,3 +212,21 @@
 "settings.storage.subtitle" = "Extracted video files are stored here after SteamCMD completes a download.";
 "settings.clearCache" = "Clear cache";
 "filter.videoOnly" = "Video items only";
+
+"nav.favorites" = "お気に入り";
+"favorites.kind" = "お気に入りの種類";
+"favorites.collections" = "コレクション";
+"favorites.authors" = "クリエイター";
+"favorites.summary" = "コレクション %@ 件・クリエイター %@ 人";
+"favorites.emptyCollections" = "お気に入りのコレクションはありません";
+"favorites.emptyCollectionsDescription" = "コレクション一覧または詳細ページの星を選ぶと、ここに保存されます。";
+"favorites.discoverCollections" = "コレクションを見る";
+"favorites.emptyAuthors" = "お気に入りのクリエイターはいません";
+"favorites.emptyAuthorsDescription" = "壁紙の詳細またはクリエイターページの星を選んで保存できます。";
+"favorites.discoverAuthors" = "壁紙を見る";
+"favorites.addCollection" = "コレクションをお気に入りに追加";
+"favorites.removeCollection" = "コレクションをお気に入りから削除";
+"favorites.addAuthor" = "クリエイターをお気に入りに追加";
+"favorites.removeAuthor" = "クリエイターをお気に入りから削除";
+"favorites.open" = "開く";
+"favorites.viewAuthorWorks" = "作品を見る";

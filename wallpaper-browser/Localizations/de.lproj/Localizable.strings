@@ -1,4 +1,7 @@
 "nav.wallpapers" = "Hintergründe";
+"nav.featured" = "Empfohlen";
+"home.viewAll" = "Alle anzeigen";
+"home.openInWorkshop" = "Im Workshop öffnen";
 "nav.workshop" = "Workshop";
 "nav.downloads" = "Downloads";
 "nav.settings" = "Einstellungen";
@@ -93,6 +96,8 @@
 "download.detail.cancelled" = "Aufgabe abgebrochen";
 "download.detail.steamDownloading" = "SteamCMD lädt herunter und überprüft";
 "download.detail.readingProject" = "project.json wird gelesen";
+"download.detail.findingVideo" = "Videodatei wird gesucht und extrahiert";
+"download.detail.repairingWorkshopCache" = "Steam-Downloadcache wird repariert und der Download wiederholt";
 "download.detail.interrupted" = "Die Aufgabe war beim letzten Beenden der App unvollständig";
 "download.detail.preparingFiles" = "Download abgeschlossen, Dateien werden vorbereitet";
 "download.detail.verifyingFiles" = "Dateien werden überprüft";
@@ -133,10 +138,16 @@
 "downloads.openFolder" = "Open wallpaper folder";
 "downloads.quickLook" = "Quick Look";
 "downloads.quickLookSpace" = "Quick Look (Space)";
+"downloads.previousVideo" = "Vorheriges Video";
+"downloads.nextVideo" = "Nächstes Video";
+"downloads.preparingVideo" = "Video wird für die Wiedergabe vorbereitet…";
+"downloads.playbackUnavailable" = "Dieses Video kann nicht wiedergegeben werden";
+"downloads.enterFullScreen" = "Vollbildmodus starten";
+"downloads.exitFullScreen" = "Vollbildmodus beenden";
 "downloads.trashSelection" = "Move selected files to Trash";
 "extractor.error.missingProject" = "No valid project.json was found in the downloaded content.";
 "extractor.error.missingVideo" = "The video file specified by project.json could not be found.";
-"extractor.error.unplayableVideo" = "This video format cannot be played by macOS.";
+"download.warning.thirdPartyPlayer" = "Dieses Videoformat kann von macOS nicht direkt abgespielt werden. Verwenden Sie einen Drittanbieter-Player wie VLC oder IINA.";
 "extractor.error.unsafePath" = "project.json points to an unsafe file path.";
 "extractor.error.unsupportedType" = "Downloaded content is not a Video item (%@).";
 "filter.genreMode" = "Genre-Filtermodus";
@@ -184,8 +195,14 @@
 "steamcmd.error.notExecutable" = "The selected file is not executable.";
 "steamcmd.error.notInstalled" = "SteamCMD was not found.";
 "steamcmd.error.notSignedIn" = "Sign in to Steam first.";
-"steamcmd.notFound.message" = "Mit Homebrew installieren oder unten eine vorhandene ausführbare Datei auswählen.";
+"steamcmd.notFound.message" = "Laden Sie SteamCMD über die offizielle Valve-URL unten herunter oder wählen Sie eine vorhandene ausführbare Datei.";
 "steamcmd.notFound.title" = "SteamCMD nicht gefunden";
+"steamcmd.installButton" = "Herunterladen und installieren";
+"steamcmd.installing" = "SteamCMD wird heruntergeladen…";
+"steamcmd.switchToManaged" = "Zur integrierten Version wechseln";
+"steamcmd.error.installDownloadFailed" = "Fehler beim Herunterladen von SteamCMD: %@";
+"steamcmd.error.installExtractFailed" = "SteamCMD konnte nicht entpackt werden.";
+"steamcmd.error.installBinaryMissing" = "SteamCMD-Programm nach dem Entpacken nicht gefunden.";
 
 "settings.category" = "Einstellungskategorie";
 "settings.steamAccount" = "Steam-Konto";
@@ -195,3 +212,21 @@
 "settings.storage.subtitle" = "Extracted video files are stored here after SteamCMD completes a download.";
 "settings.clearCache" = "Clear cache";
 "filter.videoOnly" = "Video items only";
+
+"nav.favorites" = "Favoriten";
+"favorites.kind" = "Favoritentyp";
+"favorites.collections" = "Sammlungen";
+"favorites.authors" = "Ersteller";
+"favorites.summary" = "%@ Sammlungen · %@ Ersteller";
+"favorites.emptyCollections" = "Noch keine favorisierten Sammlungen";
+"favorites.emptyCollectionsDescription" = "Mit dem Stern in einer Sammlungsliste oder -seite wird sie hier gespeichert.";
+"favorites.discoverCollections" = "Sammlungen entdecken";
+"favorites.emptyAuthors" = "Noch keine favorisierten Ersteller";
+"favorites.emptyAuthorsDescription" = "Mit dem Stern auf einer Hintergrund- oder Erstellerseite wird der Ersteller gespeichert.";
+"favorites.discoverAuthors" = "Hintergründe entdecken";
+"favorites.addCollection" = "Sammlung favorisieren";
+"favorites.removeCollection" = "Sammlung aus Favoriten entfernen";
+"favorites.addAuthor" = "Ersteller favorisieren";
+"favorites.removeAuthor" = "Ersteller aus Favoriten entfernen";
+"favorites.open" = "Öffnen";
+"favorites.viewAuthorWorks" = "Werke ansehen";

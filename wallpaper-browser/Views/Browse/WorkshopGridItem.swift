@@ -1,57 +1,111 @@
 import AppKit
 import SwiftUI
 
-struct WorkshopGridItem: View {
+struct WorkshopGridItem: View, Equatable {
   let item: WorkshopItem
   let previewRefreshToken: Int
+  let transitionSourceID: String
+  let transitionNamespace: Namespace.ID
+  let isTransitionSource: Bool
+  let record: DownloadRecord?
+  let hasDownloaded: Bool
   let showDetails: () -> Void
   let download: () -> Void
+  let retry: () -> Void
+  var isSelected: Bool? = nil
+  var toggleSelection: (() -> Void)? = nil
 
-  @EnvironmentObject private var steamCMD: SteamCMDService
   @EnvironmentObject private var appSettings: AppSettings
-  @State private var isHovering = false
 
-  private var record: DownloadRecord? { steamCMD.record(for: item.id) }
+  static func == (lhs: WorkshopGridItem, rhs: WorkshopGridItem) -> Bool {
+    lhs.item == rhs.item && lhs.previewRefreshToken == rhs.previewRefreshToken
+      && lhs.transitionSourceID == rhs.transitionSourceID
+      && lhs.isTransitionSource == rhs.isTransitionSource
+      && lhs.record == rhs.record && lhs.hasDownloaded == rhs.hasDownloaded
+      && lhs.isSelected == rhs.isSelected
+  }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Button(action: showDetails) {
-        ZStack {
-          Color(nsColor: .controlBackgroundColor)
+    VStack(alignment: .leading, spacing: 9) {
+      ZStack(alignment: .bottomTrailing) {
+        Button(action: showDetails) {
+          ZStack {
+            Color(nsColor: .controlBackgroundColor)
 
-          WorkshopPreviewImage(
-            url: item.previewURL,
-            refreshToken: previewRefreshToken
+            WorkshopPreviewImage(
+              url: item.previewURL,
+              refreshToken: previewRefreshToken,
+              allowsAnimation: false
+            )
+          }
+          .aspectRatio(1, contentMode: .fit)
+          .frame(maxWidth: .infinity)
+          .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+          .workshopDetailTransitionSource(
+            id: transitionSourceID,
+            in: transitionNamespace,
+            isActive: isTransitionSource
           )
         }
-        .aspectRatio(1, contentMode: .fit)
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .buttonStyle(.plain)
+        .help("detail.view")
+
+        Group {
+          if item.isVideo {
+            actionButton
+          } else {
+            Button(action: showDetails) {
+              Image(systemName: "info.circle")
+                .foregroundStyle(.white).padding(7)
+                .background(Color.black.opacity(0.58), in: Circle())
+            }.buttonStyle(.plain).help("explore.unsupported")
+          }
+        }.padding(9)
+      }
+      .overlay(alignment: .topLeading) {
+        if let isSelected, let toggleSelection {
+          Toggle("explore.select", isOn: Binding(
+            get: { isSelected },
+            set: { _ in toggleSelection() }
+          ))
+          .toggleStyle(WorkshopCoverSelectionStyle())
+          .padding(9)
+        }
+      }
+
+      Button(action: showDetails) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Text(item.title)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+
+          Spacer(minLength: 4)
+
+          if let genre = item.genreTags.first {
+            Text(genre)
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+              .fixedSize(horizontal: true, vertical: false)
+          }
+        }
+        .frame(maxWidth: .infinity, minHeight: 18, alignment: .leading)
       }
       .buttonStyle(.plain)
-      .help("detail.view")
+      .help(item.title)
 
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Button(action: showDetails) {
-          Text(item.title)
-            .font(.system(size: 13, weight: .medium))
-            .lineLimit(1)
-        }
-        .buttonStyle(.plain)
-        .help(item.title)
-        Spacer(minLength: 4)
-        actionButton
-      }
-
-      HStack(spacing: 5) {
-        if let genre = item.genreTags.first {
-          Text(genre)
-        }
+      HStack(spacing: 7) {
         if item.subscriptions > 0 {
-          if !item.genreTags.isEmpty { Text("·") }
           Label(formatCount(item.subscriptions), systemImage: "person.2")
         }
-        Spacer(minLength: 0)
+        if item.positiveVotes > 0 || item.negativeVotes > 0 || item.numComments > 0 {
+          Label(formatCount(item.positiveVotes), systemImage: "hand.thumbsup")
+          Label(formatCount(item.negativeVotes), systemImage: "hand.thumbsdown")
+          Label(formatCount(item.numComments), systemImage: "bubble.left")
+        }
+        Spacer(minLength: 4)
         if item.fileSize > 0 {
           Text(ByteCountFormatter.string(fromByteCount: item.fileSize, countStyle: .file))
         }
@@ -59,21 +113,26 @@ struct WorkshopGridItem: View {
       .font(.caption2)
       .foregroundStyle(.secondary)
       .lineLimit(1)
+      .minimumScaleFactor(0.78)
+      .allowsTightening(true)
     }
-    .padding(8)
+    .padding(9)
     .background(
-      isHovering ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.12) : .clear,
-      in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+      Color(nsColor: .controlBackgroundColor),
+      in: RoundedRectangle(cornerRadius: 12, style: .continuous)
     )
-    .onHover { isHovering = $0 }
+    .overlay {
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+    }
     .contextMenu {
       Button("detail.view", systemImage: "info.circle", action: showDetails)
       Button(
-        steamCMD.hasDownloaded(item.id) ? "download.again" : "common.download",
+        hasDownloaded ? "download.again" : "common.download",
         systemImage: "arrow.down.circle",
         action: download
       )
-        .disabled(record?.phase == .downloading || record?.phase == .extracting)
+        .disabled(!item.isVideo || record?.phase == .downloading || record?.phase == .extracting)
     }
   }
 
@@ -83,6 +142,9 @@ struct WorkshopGridItem: View {
     case .queued, .downloading, .extracting:
       ProgressView()
         .controlSize(.small)
+        .tint(.white)
+        .padding(7)
+        .background(Color.black.opacity(0.58), in: Circle())
         .help(
           record.map { appSettings.localized($0.phase.localizationKey) }
             ?? appSettings.localized("download.phase.downloading")
@@ -95,28 +157,36 @@ struct WorkshopGridItem: View {
       } label: {
         Image(systemName: "checkmark.circle.fill")
           .foregroundStyle(.green)
+          .padding(7)
+          .background(Color.black.opacity(0.58), in: Circle())
       }
       .buttonStyle(.plain)
       .help("common.showInFinder")
     case .failed, .cancelled:
-      Button {
-        steamCMD.retry(item.id)
-      } label: {
+      Button(action: retry) {
         Image(systemName: "arrow.clockwise.circle")
+          .foregroundStyle(.white)
+          .padding(7)
+          .background(Color.black.opacity(0.58), in: Circle())
       }
       .buttonStyle(.plain)
       .help("common.retry")
     case .none:
-      if steamCMD.hasDownloaded(item.id) {
+      if hasDownloaded {
         Button(action: download) {
           Image(systemName: "checkmark.circle")
             .foregroundStyle(.green)
+            .padding(7)
+            .background(Color.black.opacity(0.58), in: Circle())
         }
         .buttonStyle(.plain)
         .help("download.previouslyDownloaded")
       } else {
         Button(action: download) {
-          Image(systemName: "arrow.down.circle")
+          Image(systemName: "arrow.down")
+            .foregroundStyle(.white)
+            .padding(7)
+            .background(Color.black.opacity(0.58), in: Circle())
         }
         .buttonStyle(.plain)
         .help("common.download")
@@ -130,5 +200,21 @@ struct WorkshopGridItem: View {
     case 1_000...: String(format: "%.1fK", Double(value) / 1_000)
     default: String(value)
     }
+  }
+}
+
+
+private struct WorkshopCoverSelectionStyle: ToggleStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    Button { configuration.isOn.toggle() } label: {
+      Image(systemName: configuration.isOn ? "checkmark.square.fill" : "square")
+        .foregroundStyle(configuration.isOn ? Color.green : Color.white)
+        .padding(7)
+        .background(Color.black.opacity(0.58), in: Circle())
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("explore.select")
+    .accessibilityAddTraits(configuration.isOn ? [.isSelected] : [])
   }
 }

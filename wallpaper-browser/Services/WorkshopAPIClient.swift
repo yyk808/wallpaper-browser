@@ -4,6 +4,9 @@ enum WorkshopAPIError: LocalizedError {
   case missingAPIKey
   case invalidAPIKey
   case invalidResponse
+  case itemUnavailable
+  case wrongApp
+  case invalidLink
   case commentsUnavailable
   case httpStatus(Int)
 
@@ -12,6 +15,9 @@ enum WorkshopAPIError: LocalizedError {
     case .missingAPIKey: "api.error.missingKey"
     case .invalidAPIKey: "api.error.invalidKey"
     case .invalidResponse: "api.error.invalidResponse"
+    case .itemUnavailable: "api.error.itemUnavailable"
+    case .wrongApp: "api.error.wrongApp"
+    case .invalidLink: "api.error.invalidLink"
     case .commentsUnavailable: "api.error.commentsUnavailable"
     case .httpStatus(let status): "api.error.httpStatus|\(status)"
     }
@@ -57,9 +63,11 @@ nonisolated struct WorkshopAPIClient: Sendable {
     var queryItems = [
       URLQueryItem(name: "key", value: apiKey),
       URLQueryItem(name: "appid", value: String(Self.wallpaperEngineAppID)),
-      URLQueryItem(name: "query_type", value: query.isEmpty ? String(sortOrder.queryType) : "12"),
+      URLQueryItem(name: "query_type", value: String(sortOrder.queryType)),
       URLQueryItem(name: "page", value: String(page)),
       URLQueryItem(name: "numperpage", value: String(pageSize)),
+      URLQueryItem(name: "filetype", value: "0"),
+      URLQueryItem(name: "match_all_tags", value: "true"),
       URLQueryItem(name: "return_tags", value: "true"),
       URLQueryItem(name: "return_previews", value: "true"),
       URLQueryItem(name: "return_short_description", value: "true"),
@@ -73,7 +81,7 @@ nonisolated struct WorkshopAPIClient: Sendable {
       queryItems.append(URLQueryItem(name: "days", value: String(trendPeriod.rawValue)))
     }
 
-    var requiredTags = ["Video"]
+    var requiredTags: [String] = filters.wallpaperType.map { [$0] } ?? []
     if filters.ratings.count == 1, let rating = filters.ratings.first {
       requiredTags.append(rating)
     }
@@ -108,10 +116,8 @@ nonisolated struct WorkshopAPIClient: Sendable {
 
     let payload = try JSONDecoder().decode(QueryEnvelope.self, from: data)
     let details = payload.response.publishedFileDetails
-      .filter { !$0.id.isEmpty && !$0.title.isEmpty }
-      .filter { detail in
-        detail.tags.contains { $0.tag.caseInsensitiveCompare("Video") == .orderedSame }
-      }
+      .filter { $0.isAvailable }
+
     let creatorNames = await fetchCreatorNames(
       for: details.compactMap(\.creatorSteamID).filter { !$0.isEmpty }
     )
@@ -125,12 +131,20 @@ nonisolated struct WorkshopAPIClient: Sendable {
     let uniqueIDs = Array(Set(steamIDs)).sorted()
     guard !uniqueIDs.isEmpty else { return [:] }
 
+    return await WorkshopCreatorNameCache.shared.names(for: uniqueIDs) { missingIDs in
+      await requestCreatorNames(for: missingIDs)
+    }
+  }
+
+  private func requestCreatorNames(for steamIDs: [String]) async -> [String: String] {
+    guard !steamIDs.isEmpty else { return [:] }
+
     var components = URLComponents(
       string: "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/"
     )!
     components.queryItems = [
       URLQueryItem(name: "key", value: apiKeyProvider()),
-      URLQueryItem(name: "steamids", value: uniqueIDs.joined(separator: ",")),
+      URLQueryItem(name: "steamids", value: steamIDs.joined(separator: ",")),
     ]
     guard let url = components.url else { return [:] }
 
@@ -185,6 +199,92 @@ nonisolated struct WorkshopAPIClient: Sendable {
   }
 }
 
+private actor WorkshopCreatorNameCache {
+  static let shared = WorkshopCreatorNameCache()
+
+  private var entries: [String: CreatorNameEntry] = [:]
+  private var inFlightLoads: [String: CreatorNameLoad] = [:]
+  private static let lifetime: TimeInterval = 6 * 60 * 60
+  private static let maximumEntryCount = 4_096
+
+  func names(
+    for steamIDs: [String],
+    load: @escaping @Sendable ([String]) async -> [String: String]
+  ) async -> [String: String] {
+    let now = Date()
+    var names: [String: String] = [:]
+    var loadsByID: [UUID: CreatorNameLoad] = [:]
+    var unloadedIDs: [String] = []
+
+    for steamID in steamIDs {
+      if let entry = entries[steamID], entry.expiresAt > now {
+        names[steamID] = entry.name
+      } else {
+        entries.removeValue(forKey: steamID)
+        if let inFlightLoad = inFlightLoads[steamID] {
+          loadsByID[inFlightLoad.id] = inFlightLoad
+        } else {
+          unloadedIDs.append(steamID)
+        }
+      }
+    }
+
+    if !unloadedIDs.isEmpty {
+      let id = UUID()
+      let task = Task { await load(unloadedIDs) }
+      let creatorNameLoad = CreatorNameLoad(
+        id: id,
+        steamIDs: Set(unloadedIDs),
+        task: task
+      )
+      for steamID in unloadedIDs {
+        inFlightLoads[steamID] = creatorNameLoad
+      }
+      loadsByID[id] = creatorNameLoad
+    }
+
+    for creatorNameLoad in loadsByID.values {
+      let loadedNames = await creatorNameLoad.task.value
+      let expiresAt = Date().addingTimeInterval(Self.lifetime)
+      for (steamID, name) in loadedNames where !name.isEmpty {
+        entries[steamID] = CreatorNameEntry(name: name, expiresAt: expiresAt)
+        if creatorNameLoad.steamIDs.contains(steamID) {
+          names[steamID] = name
+        }
+      }
+      for steamID in creatorNameLoad.steamIDs
+      where inFlightLoads[steamID]?.id == creatorNameLoad.id {
+        inFlightLoads.removeValue(forKey: steamID)
+      }
+    }
+
+    trimIfNeeded()
+    return names
+  }
+
+  private func trimIfNeeded() {
+    let overflow = entries.count - Self.maximumEntryCount
+    guard overflow > 0 else { return }
+    let oldestIDs = entries.sorted { $0.value.expiresAt < $1.value.expiresAt }
+      .prefix(overflow)
+      .map(\.key)
+    for steamID in oldestIDs {
+      entries.removeValue(forKey: steamID)
+    }
+  }
+}
+
+private struct CreatorNameEntry {
+  let name: String
+  let expiresAt: Date
+}
+
+private struct CreatorNameLoad {
+  let id: UUID
+  let steamIDs: Set<String>
+  let task: Task<[String: String], Never>
+}
+
 private struct QueryEnvelope: Decodable {
   let response: QueryResponse
 }
@@ -221,7 +321,21 @@ private struct WorkshopFileDTO: Decodable {
   let ratingScore: Double?
   let positiveVotes: Int
   let negativeVotes: Int
+  let numComments: Int
   let voteData: VoteDataDTO?
+  let result: Int
+  let consumerAppID: Int?
+  let fileType: Int
+  let fullDescription: String
+  let createdAt: Date?
+  let updatedAt: Date?
+  let previews: [WorkshopPreviewDTO]
+  let children: [WorkshopChildDTO]
+  let views: Int?
+  let favorites: Int?
+  let banned: Bool
+
+  var isAvailable: Bool { result == 1 && !banned && !id.isEmpty && !title.isEmpty }
 
   enum CodingKeys: String, CodingKey {
     case id = "publishedfileid"
@@ -237,6 +351,16 @@ private struct WorkshopFileDTO: Decodable {
     case voteData = "vote_data"
     case positiveVotes = "votes_up"
     case negativeVotes = "votes_down"
+    case numComments = "num_comments"
+    case publicComments = "num_comments_public"
+    case result, banned, previews, children, views
+    case consumerAppID = "consumer_appid"
+    case fileType = "file_type"
+    case fullDescription = "file_description"
+    case description
+    case createdAt = "time_created"
+    case updatedAt = "time_updated"
+    case favorites = "favorited"
   }
 
   init(from decoder: Decoder) throws {
@@ -244,7 +368,19 @@ private struct WorkshopFileDTO: Decodable {
     id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
     creatorSteamID = try container.decodeIfPresent(String.self, forKey: .creatorSteamID)
     title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
-    summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
+    fullDescription = try container.decodeIfPresent(String.self, forKey: .fullDescription)
+      ?? container.decodeIfPresent(String.self, forKey: .description) ?? ""
+    summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? fullDescription
+    result = container.decodeFlexibleInt(forKey: .result) ?? 1
+    consumerAppID = container.decodeFlexibleInt(forKey: .consumerAppID)
+    fileType = container.decodeFlexibleInt(forKey: .fileType) ?? 0
+    createdAt = container.decodeFlexibleDouble(forKey: .createdAt).map(Date.init(timeIntervalSince1970:))
+    updatedAt = container.decodeFlexibleDouble(forKey: .updatedAt).map(Date.init(timeIntervalSince1970:))
+    previews = try container.decodeIfPresent([WorkshopPreviewDTO].self, forKey: .previews) ?? []
+    children = try container.decodeIfPresent([WorkshopChildDTO].self, forKey: .children) ?? []
+    views = container.decodeFlexibleInt(forKey: .views)
+    favorites = container.decodeFlexibleInt(forKey: .favorites)
+    banned = (try? container.decode(Bool.self, forKey: .banned)) ?? false
     previewURL = try container.decodeIfPresent(String.self, forKey: .previewURL)
       .flatMap(URL.init(string:))
     tags = try container.decodeIfPresent([TagDTO].self, forKey: .tags) ?? []
@@ -259,6 +395,8 @@ private struct WorkshopFileDTO: Decodable {
       container.decodeFlexibleInt(forKey: .positiveVotes) ?? voteData?.positiveVotes ?? 0
     negativeVotes =
       container.decodeFlexibleInt(forKey: .negativeVotes) ?? voteData?.negativeVotes ?? 0
+    numComments = container.decodeFlexibleInt(forKey: .publicComments)
+      ?? container.decodeFlexibleInt(forKey: .numComments) ?? 0
   }
 
   func workshopItem(creatorName: String?) -> WorkshopItem {
@@ -274,7 +412,9 @@ private struct WorkshopFileDTO: Decodable {
       fileSize: fileSize,
       ratingScore: ratingScore ?? voteData?.score,
       positiveVotes: positiveVotes,
-      negativeVotes: negativeVotes
+      negativeVotes: negativeVotes,
+      numComments: numComments,
+      fileType: fileType
     )
   }
 }
@@ -427,4 +567,193 @@ extension KeyedDecodingContainer {
     if let value = try? decode(String.self, forKey: key) { return Double(value) }
     return nil
   }
+}
+
+extension WorkshopAPIClient {
+  private func serviceRequest<T: Decodable>(
+    _ method: String, parameters: [String: Any], as type: T.Type
+  ) async throws -> T {
+    let key = apiKeyProvider()
+    guard !key.isEmpty else { throw WorkshopAPIError.missingAPIKey }
+    var components = URLComponents(string: "https://api.steampowered.com/IPublishedFileService/\(method)/v1/")!
+    let input = try JSONSerialization.data(withJSONObject: parameters)
+    components.queryItems = [
+      URLQueryItem(name: "key", value: key),
+      URLQueryItem(name: "input_json", value: String(decoding: input, as: UTF8.self)),
+    ]
+    guard let url = components.url else { throw WorkshopAPIError.invalidResponse }
+    let (data, response) = try await session.data(from: url)
+    try validateResponse(response)
+    return try JSONDecoder().decode(type, from: data)
+  }
+
+  private func validateResponse(_ response: URLResponse) throws {
+    guard let http = response as? HTTPURLResponse else { throw WorkshopAPIError.invalidResponse }
+    if http.statusCode == 403 { throw WorkshopAPIError.invalidAPIKey }
+    guard http.statusCode == 200 else { throw WorkshopAPIError.httpStatus(http.statusCode) }
+  }
+
+  func fetchDetails(ids: [String]) async throws -> [WorkshopDetails] {
+    guard !ids.isEmpty else { return [] }
+    let response = try await serviceRequest("GetDetails", parameters: [
+      "publishedfileids": ids,
+      "includeadditionalpreviews": true,
+      "includechildren": true,
+      "includetags": true,
+      "includevotes": true,
+    ], as: QueryEnvelope.self)
+    let files = response.response.publishedFileDetails.filter {
+      $0.isAvailable && $0.consumerAppID == Self.wallpaperEngineAppID
+    }
+    let names = await fetchCreatorNames(for: files.compactMap(\.creatorSteamID))
+    return files.map { file in
+      var media: [WorkshopMedia] = []
+      if let url = file.previewURL, url.isWorkshopWebURL {
+        media.append(WorkshopMedia(url: url, kind: .image))
+      }
+      for preview in file.previews {
+        if let medium = preview.medium, !media.contains(where: { $0.url == medium.url }) {
+          media.append(medium)
+        }
+      }
+      return WorkshopDetails(
+        item: file.workshopItem(creatorName: file.creatorSteamID.flatMap { names[$0] }),
+        description: file.fullDescription,
+        createdAt: file.createdAt, updatedAt: file.updatedAt, previews: media,
+        childIDs: file.children.sorted { ($0.sortorder ?? 0) < ($1.sortorder ?? 0) }.map(\.publishedfileid), views: file.views, favorites: file.favorites
+      )
+    }
+  }
+
+  func fetchDetails(id: String) async throws -> WorkshopDetails {
+    guard let detail = try await fetchDetails(ids: [id]).first else {
+      throw WorkshopAPIError.itemUnavailable
+    }
+    return detail
+  }
+
+  func fetchDiscovery(
+    route: WorkshopExploreRoute, page: Int, query: String, sort: WorkshopSortOrder
+  ) async throws -> WorkshopDiscoveryPage {
+    var parameters: [String: Any] = [
+      "appid": Self.wallpaperEngineAppID, "page": page, "numperpage": 30,
+      "return_tags": true, "return_short_description": true, "return_vote_data": true,
+      "match_all_tags": true,
+    ]
+    let method: String
+    switch route {
+    case .author(let id, _):
+      method = "GetUserFiles"
+      parameters["steamid"] = id
+      parameters["type"] = "myfiles"
+      // GetUserFiles uses named sort methods, not QueryFiles query_type values.
+      parameters["sortmethod"] = sort == .highestRated ? "score" : "creationorder"
+      parameters["filetype"] = 0
+    case .tag(let tag):
+      method = "QueryFiles"
+      parameters["requiredtags"] = [tag]
+      parameters["filetype"] = 0
+      if !WorkshopFilters.contentRatings.contains(tag) {
+        parameters["excludedtags"] = ["Questionable", "Mature"]
+      }
+      parameters["query_type"] = sort.queryType
+      if !query.isEmpty { parameters["search_text"] = query }
+      parameters["days"] = 7
+    case .collections(let childID):
+      method = "QueryFiles"
+      parameters["filetype"] = 1
+      parameters["query_type"] = sort.queryType
+      if !query.isEmpty { parameters["search_text"] = query }
+      if let childID { parameters["child_publishedfileid"] = childID }
+      parameters["days"] = 7
+    default:
+      throw WorkshopAPIError.invalidResponse
+    }
+    let payload = try await serviceRequest(method, parameters: parameters, as: QueryEnvelope.self)
+    let raw = payload.response.publishedFileDetails
+    let files = raw.filter {
+      $0.isAvailable && $0.consumerAppID == Self.wallpaperEngineAppID
+        && ($0.fileType == 2 || $0.fileType == 0)
+    }
+    let names = await fetchCreatorNames(for: files.compactMap(\.creatorSteamID))
+    return WorkshopDiscoveryPage(
+      items: files.map { $0.workshopItem(creatorName: $0.creatorSteamID.flatMap { names[$0] }) },
+      total: payload.response.total,
+      hasMore: !raw.isEmpty && page * 30 < payload.response.total
+    )
+  }
+
+  func fetchCreator(id: String) async throws -> WorkshopCreator? {
+    let key = apiKeyProvider()
+    guard !key.isEmpty else { throw WorkshopAPIError.missingAPIKey }
+    var components = URLComponents(string: "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/")!
+    components.queryItems = [URLQueryItem(name: "key", value: key), URLQueryItem(name: "steamids", value: id)]
+    let (data, response) = try await session.data(from: components.url!)
+    try validateResponse(response)
+    let payload = try JSONDecoder().decode(CreatorEnvelope.self, from: data)
+    return payload.response.players.first.map {
+      WorkshopCreator(name: $0.personaname, avatarURL: $0.avatarfull.flatMap(URL.init(string:)),
+        profileURL: $0.profileurl.flatMap(URL.init(string:)).flatMap { $0.isWorkshopWebURL ? $0 : nil })
+    }
+  }
+
+  func resolveVanity(_ name: String) async throws -> String {
+    let key = apiKeyProvider()
+    guard !key.isEmpty else { throw WorkshopAPIError.missingAPIKey }
+    var components = URLComponents(string: "https://api.steampowered.com/ISteamUser/ResolveVanityURL/v1/")!
+    components.queryItems = [URLQueryItem(name: "key", value: key), URLQueryItem(name: "vanityurl", value: name)]
+    let (data, response) = try await session.data(from: components.url!)
+    try validateResponse(response)
+    let payload = try JSONDecoder().decode(VanityEnvelope.self, from: data)
+    guard payload.response.success == 1, let id = payload.response.steamid else {
+      throw WorkshopAPIError.itemUnavailable
+    }
+    return id
+  }
+}
+
+private struct WorkshopChildDTO: Decodable {
+  let publishedfileid: String
+  let sortorder: Int?
+}
+
+private struct WorkshopPreviewDTO: Decodable {
+  let previewType: Int?
+  let url: String?
+  let videoID: String?
+  let externalURL: String?
+  enum CodingKeys: String, CodingKey {
+    case previewType = "preview_type"
+    case url
+    case videoID = "youtubevideoid"
+    case externalURL = "external_url"
+  }
+  var medium: WorkshopMedia? {
+    if let videoID, !videoID.isEmpty {
+      var components = URLComponents(string: "https://www.youtube.com/watch")!
+      components.queryItems = [URLQueryItem(name: "v", value: videoID)]
+      return components.url.map { WorkshopMedia(url: $0, kind: .videoLink) }
+    }
+    guard let value = externalURL ?? url, let link = URL(string: value), link.isWorkshopWebURL else { return nil }
+    return WorkshopMedia(url: link, kind: previewType == 0 ? .image : .videoLink)
+  }
+}
+
+private struct CreatorEnvelope: Decodable {
+  struct Response: Decodable { let players: [Player] }
+  struct Player: Decodable {
+    let personaname: String
+    let avatarfull: String?
+    let profileurl: String?
+  }
+  let response: Response
+}
+
+private struct VanityEnvelope: Decodable {
+  struct Response: Decodable { let success: Int; let steamid: String? }
+  let response: Response
+}
+
+extension URL {
+  var isWorkshopWebURL: Bool { ["https", "http"].contains(scheme?.lowercased() ?? "") && host != nil }
 }

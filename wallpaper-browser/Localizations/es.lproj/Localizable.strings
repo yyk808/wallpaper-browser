@@ -1,4 +1,7 @@
 "nav.wallpapers" = "Fondos";
+"nav.featured" = "Destacados";
+"home.viewAll" = "Ver todo";
+"home.openInWorkshop" = "Abrir en el taller";
 "nav.workshop" = "Workshop";
 "nav.downloads" = "Descargas";
 "nav.settings" = "Ajustes";
@@ -93,6 +96,8 @@
 "download.detail.cancelled" = "Tarea cancelada";
 "download.detail.steamDownloading" = "SteamCMD está descargando y verificando";
 "download.detail.readingProject" = "Leyendo project.json";
+"download.detail.findingVideo" = "Buscando y extrayendo el archivo de vídeo";
+"download.detail.repairingWorkshopCache" = "Reparando la caché de descargas de Steam y reintentando";
 "download.detail.interrupted" = "La tarea no terminó cuando la app se cerró por última vez";
 "download.detail.preparingFiles" = "Descarga terminada, preparando archivos";
 "download.detail.verifyingFiles" = "Verificando archivos";
@@ -133,10 +138,16 @@
 "downloads.openFolder" = "Open wallpaper folder";
 "downloads.quickLook" = "Quick Look";
 "downloads.quickLookSpace" = "Quick Look (Space)";
+"downloads.previousVideo" = "Vídeo anterior";
+"downloads.nextVideo" = "Siguiente vídeo";
+"downloads.preparingVideo" = "Preparando el vídeo para reproducirlo…";
+"downloads.playbackUnavailable" = "No se puede reproducir este vídeo";
+"downloads.enterFullScreen" = "Entrar en pantalla completa";
+"downloads.exitFullScreen" = "Salir de pantalla completa";
 "downloads.trashSelection" = "Move selected files to Trash";
 "extractor.error.missingProject" = "No valid project.json was found in the downloaded content.";
 "extractor.error.missingVideo" = "The video file specified by project.json could not be found.";
-"extractor.error.unplayableVideo" = "This video format cannot be played by macOS.";
+"download.warning.thirdPartyPlayer" = "macOS no puede reproducir este formato de vídeo directamente. Usa un reproductor de terceros como VLC o IINA.";
 "extractor.error.unsafePath" = "project.json points to an unsafe file path.";
 "extractor.error.unsupportedType" = "Downloaded content is not a Video item (%@).";
 "filter.genreMode" = "Modo de filtro de género";
@@ -184,8 +195,14 @@
 "steamcmd.error.notExecutable" = "The selected file is not executable.";
 "steamcmd.error.notInstalled" = "SteamCMD was not found.";
 "steamcmd.error.notSignedIn" = "Sign in to Steam first.";
-"steamcmd.notFound.message" = "Instálalo con Homebrew o elige un ejecutable existente abajo.";
+"steamcmd.notFound.message" = "Descargue SteamCMD desde la URL oficial de Valve abajo, o elija un ejecutable existente.";
 "steamcmd.notFound.title" = "SteamCMD no encontrado";
+"steamcmd.installButton" = "Descargar e instalar";
+"steamcmd.installing" = "Descargando SteamCMD…";
+"steamcmd.switchToManaged" = "Cambiar a la versión integrada";
+"steamcmd.error.installDownloadFailed" = "Error al descargar SteamCMD: %@";
+"steamcmd.error.installExtractFailed" = "No se pudo extraer SteamCMD.";
+"steamcmd.error.installBinaryMissing" = "No se encontró el ejecutable de SteamCMD tras la extracción.";
 
 "settings.category" = "Categoría de ajustes";
 "settings.steamAccount" = "Cuenta de Steam";
@@ -195,3 +212,21 @@
 "settings.storage.subtitle" = "Extracted video files are stored here after SteamCMD completes a download.";
 "settings.clearCache" = "Clear cache";
 "filter.videoOnly" = "Video items only";
+
+"nav.favorites" = "Favoritos";
+"favorites.kind" = "Tipo de favorito";
+"favorites.collections" = "Colecciones";
+"favorites.authors" = "Creadores";
+"favorites.summary" = "%@ colecciones · %@ creadores";
+"favorites.emptyCollections" = "Aún no hay colecciones favoritas";
+"favorites.emptyCollectionsDescription" = "Selecciona la estrella en una lista o página de colección para guardarla aquí.";
+"favorites.discoverCollections" = "Explorar colecciones";
+"favorites.emptyAuthors" = "Aún no hay creadores favoritos";
+"favorites.emptyAuthorsDescription" = "Selecciona la estrella en una página de fondo o de creador para guardarlo.";
+"favorites.discoverAuthors" = "Explorar fondos";
+"favorites.addCollection" = "Añadir colección a favoritos";
+"favorites.removeCollection" = "Quitar colección de favoritos";
+"favorites.addAuthor" = "Añadir creador a favoritos";
+"favorites.removeAuthor" = "Quitar creador de favoritos";
+"favorites.open" = "Abrir";
+"favorites.viewAuthorWorks" = "Ver obras del creador";

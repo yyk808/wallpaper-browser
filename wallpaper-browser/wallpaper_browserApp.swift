@@ -72,6 +72,8 @@ final class AppSettings: ObservableObject {
     }
   }
 
+  private var localizationBundles: [AppLanguage: Bundle] = [:]
+
   private enum Keys {
     static let language = "app.language"
     static let theme = "app.theme"
@@ -105,53 +107,72 @@ final class AppSettings: ObservableObject {
   var locale: Locale { Locale(identifier: language.rawValue) }
 
   func localized(_ key: String) -> String {
-    let components = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
-    let formatKey = components[0]
+    guard let separator = key.firstIndex(of: "|") else {
+      return localizedValue(key)
+    }
+
+    let formatKey = String(key[..<separator])
     let format = localizedValue(formatKey)
-    guard components.count > 1 else { return format }
+    let arguments = key[key.index(after: separator)...]
+      .split(separator: "|", omittingEmptySubsequences: false)
+      .map { String($0) as NSString }
     return String(
       format: format,
       locale: locale,
-      arguments: components.dropFirst().map { $0 as NSString }
+      arguments: arguments
     )
   }
 
   private func localizedValue(_ key: String) -> String {
-    if let path = Bundle.main.path(forResource: language.rawValue, ofType: "lproj"),
-      let bundle = Bundle(path: path)
-    {
+    if let bundle = localizationBundle(for: language) {
       let value = bundle.localizedString(forKey: key, value: key, table: nil)
       if value != key { return value }
     }
-    if let path = Bundle.main.path(forResource: AppLanguage.english.rawValue, ofType: "lproj"),
-      let englishBundle = Bundle(path: path)
-    {
+    if let englishBundle = localizationBundle(for: .english) {
       let value = englishBundle.localizedString(forKey: key, value: key, table: nil)
       if value != key { return value }
     }
     return key
   }
+
+  private func localizationBundle(for language: AppLanguage) -> Bundle? {
+    if let bundle = localizationBundles[language] {
+      return bundle
+    }
+    guard let path = Bundle.main.path(forResource: language.rawValue, ofType: "lproj"),
+      let bundle = Bundle(path: path)
+    else { return nil }
+    localizationBundles[language] = bundle
+    return bundle
+  }
 }
 
 @main
 struct wallpaper_browserApp: App {
+  @StateObject private var homeViewModel = WorkshopHomeViewModel()
   @StateObject private var browseViewModel = BrowseViewModel()
   @StateObject private var steamCMD = SteamCMDService()
   @StateObject private var appSettings = AppSettings()
+  @StateObject private var favoriteLibrary = FavoriteLibrary()
 
   var body: some Scene {
     WindowGroup {
-      ContentView()
-        .environmentObject(browseViewModel)
+      ContentView(
+        homeViewModel: homeViewModel,
+        browseViewModel: browseViewModel
+      )
         .environmentObject(steamCMD)
         .environmentObject(appSettings)
+        .environmentObject(favoriteLibrary)
         .environment(\.locale, appSettings.locale)
         .preferredColorScheme(appSettings.theme.colorScheme)
     }
-    .defaultSize(width: 1080, height: 700)
+    .defaultSize(width: 1180, height: 760)
+    .windowToolbarStyle(.unified(showsTitle: false))
     .commands {
       CommandGroup(after: .sidebar) {
         Button("command.refreshPreviews") {
+          homeViewModel.refreshPreviews()
           browseViewModel.refreshPreviews()
         }
         .keyboardShortcut("r", modifiers: .command)

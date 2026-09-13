@@ -30,6 +30,7 @@ struct DownloadRecord: Identifiable, Codable, Hashable, Sendable {
   var completedAt: Date?
   var progress: Double? = nil
   var bytesPerSecond: Double? = nil
+  var needsThirdPartyPlayer = false
 
   var localURL: URL? {
     localPath.map { URL(fileURLWithPath: $0) }
@@ -45,6 +46,7 @@ struct DownloadRecord: Identifiable, Codable, Hashable, Sendable {
     case completedAt
     case progress
     case bytesPerSecond
+    case needsThirdPartyPlayer
   }
 
   init(
@@ -56,7 +58,8 @@ struct DownloadRecord: Identifiable, Codable, Hashable, Sendable {
     createdAt: Date,
     completedAt: Date?,
     progress: Double? = nil,
-    bytesPerSecond: Double? = nil
+    bytesPerSecond: Double? = nil,
+    needsThirdPartyPlayer: Bool = false
   ) {
     self.id = id
     self.item = item
@@ -67,6 +70,7 @@ struct DownloadRecord: Identifiable, Codable, Hashable, Sendable {
     self.completedAt = completedAt
     self.progress = progress
     self.bytesPerSecond = bytesPerSecond
+    self.needsThirdPartyPlayer = needsThirdPartyPlayer
   }
 
   init(from decoder: Decoder) throws {
@@ -80,5 +84,7 @@ struct DownloadRecord: Identifiable, Codable, Hashable, Sendable {
     completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
     progress = try container.decodeIfPresent(Double.self, forKey: .progress)
     bytesPerSecond = try container.decodeIfPresent(Double.self, forKey: .bytesPerSecond)
+    needsThirdPartyPlayer =
+      try container.decodeIfPresent(Bool.self, forKey: .needsThirdPartyPlayer) ?? false
   }
 }

@@ -11,15 +11,12 @@ private enum SettingsDestination: String, Hashable {
 struct SettingsView: View {
   @EnvironmentObject private var steamCMD: SteamCMDService
   @EnvironmentObject private var appSettings: AppSettings
-  @ObservedObject private var imageCache = WorkshopImageCache.shared
   @State private var selection: SettingsDestination = .workshop
   @State private var apiKey = ""
+  @State private var hasSavedAPIKey = false
   @State private var apiKeyMessage: String?
   @State private var apiKeySaved = false
   @State private var isShowingLogin = false
-  @State private var copiedInstallCommand = false
-  @State private var cacheLimitMB = 512
-  @State private var isConfirmingCacheClear = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -47,7 +44,7 @@ struct SettingsView: View {
       case .steam:
         steamPane
       case .storage:
-        storagePane
+        StorageSettingsPane()
       case .appearance:
         appearancePane
       }
@@ -56,24 +53,11 @@ struct SettingsView: View {
     .navigationTitle("nav.settings")
     .onAppear {
       apiKey = CredentialStore.shared.loadAPIKey()
-      cacheLimitMB = imageCache.maximumSizeMegabytes
-      imageCache.refreshDiskUsage()
+      hasSavedAPIKey = !apiKey.isEmpty
     }
     .sheet(isPresented: $isShowingLogin) {
       SteamLoginView()
         .environmentObject(steamCMD)
-    }
-    .confirmationDialog(
-      "settings.clearCache.title",
-      isPresented: $isConfirmingCacheClear,
-      titleVisibility: .visible
-    ) {
-      Button("settings.clearCache", role: .destructive) {
-        imageCache.clear()
-      }
-      Button("common.cancel", role: .cancel) {}
-    } message: {
-      Text("settings.clearCache.message")
     }
   }
 
@@ -138,7 +122,7 @@ struct SettingsView: View {
             destination: URL(string: "https://steamcommunity.com/dev/apikey")!
           )
 
-          if !CredentialStore.shared.loadAPIKey().isEmpty {
+          if hasSavedAPIKey {
             Button("common.remove", systemImage: "trash", role: .destructive) {
               removeAPIKey()
             }
@@ -193,6 +177,21 @@ struct SettingsView: View {
             chooseSteamCMD()
           }
         }
+
+        if steamCMD.isInstalled && !steamCMD.isUsingManagedSteamCMD {
+          SettingsRow(label: "") {
+            if steamCMD.isInstallingSteamCMD {
+              ProgressView(value: steamCMD.steamCMDInstallProgress) {
+                Text("steamcmd.installing")
+              }
+              .frame(width: 180)
+            } else {
+              Button("steamcmd.switchToManaged", systemImage: "arrow.down.circle") {
+                Task { await steamCMD.installSteamCMD() }
+              }
+            }
+          }
+        }
       }
 
       Divider()
@@ -222,7 +221,121 @@ struct SettingsView: View {
     }
   }
 
-  private var storagePane: some View {
+  private var installCallout: some View {
+    HStack(spacing: 12) {
+      Image(systemName: "terminal")
+        .font(.title2)
+        .foregroundStyle(.secondary)
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text("steamcmd.notFound.title")
+          .fontWeight(.medium)
+        Text("steamcmd.notFound.message")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+        if let error = steamCMD.steamCMDInstallError {
+          Text(appSettings.localized(error))
+            .font(.caption)
+            .foregroundStyle(.red)
+        }
+      }
+
+      Spacer()
+
+      if steamCMD.isInstallingSteamCMD {
+        ProgressView(value: steamCMD.steamCMDInstallProgress) {
+          Text("steamcmd.installing")
+        }
+        .frame(width: 160)
+      } else {
+        Button {
+          Task { await steamCMD.installSteamCMD() }
+        } label: {
+          Label("steamcmd.installButton", systemImage: "arrow.down.circle")
+        }
+        .buttonStyle(.borderedProminent)
+      }
+    }
+    .padding(12)
+    .background(
+      .quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private func saveAPIKey() {
+    do {
+      try CredentialStore.shared.saveAPIKey(apiKey)
+      hasSavedAPIKey = !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      apiKeyMessage = "settings.apiKey.saved"
+      apiKeySaved = true
+    } catch {
+      apiKeyMessage = error.localizedDescription
+      apiKeySaved = false
+    }
+  }
+
+  private func removeAPIKey() {
+    do {
+      try CredentialStore.shared.deleteAPIKey()
+      apiKey = ""
+      hasSavedAPIKey = false
+      apiKeyMessage = "settings.apiKey.removed"
+      apiKeySaved = true
+    } catch {
+      apiKeyMessage = error.localizedDescription
+      apiKeySaved = false
+    }
+  }
+
+  private func chooseSteamCMD() {
+    let panel = NSOpenPanel()
+    panel.title = "steamcmd.choose.title"
+    panel.message = "steamcmd.choose.message"
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    if panel.runModal() == .OK, let url = panel.url {
+      steamCMD.setCustomPath(url.path)
+    }
+  }
+
+  private func chooseLibraryDirectory() {
+    let panel = NSOpenPanel()
+    panel.title = "settings.chooseVideoDirectory"
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.canCreateDirectories = true
+    panel.allowsMultipleSelection = false
+    if panel.runModal() == .OK, let url = panel.url {
+      steamCMD.setLibraryDirectory(url)
+    }
+  }
+
+  private func revealLibraryDirectory() {
+    try? FileManager.default.createDirectory(
+      at: steamCMD.libraryDirectory,
+      withIntermediateDirectories: true
+    )
+    NSWorkspace.shared.open(steamCMD.libraryDirectory)
+  }
+
+}
+
+@MainActor
+private struct StorageSettingsPane: View {
+  @EnvironmentObject private var steamCMD: SteamCMDService
+  @EnvironmentObject private var appSettings: AppSettings
+  @ObservedObject private var imageCache: WorkshopImageCache
+  @State private var cacheLimitMB: Int
+  @State private var isConfirmingCacheClear = false
+
+  init() {
+    let cache = WorkshopImageCache.shared
+    _imageCache = ObservedObject(wrappedValue: cache)
+    _cacheLimitMB = State(initialValue: cache.maximumSizeMegabytes)
+  }
+
+  var body: some View {
     SettingsPane(
       title: "settings.storage",
       subtitle: "settings.storage.subtitle"
@@ -301,74 +414,21 @@ struct SettingsView: View {
         }
       }
     }
-  }
-
-  private var installCallout: some View {
-    HStack(spacing: 12) {
-      Image(systemName: "terminal")
-        .font(.title2)
-        .foregroundStyle(.secondary)
-
-      VStack(alignment: .leading, spacing: 3) {
-        Text("steamcmd.notFound.title")
-          .fontWeight(.medium)
-        Text("steamcmd.notFound.message")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+    .onAppear {
+      cacheLimitMB = imageCache.maximumSizeMegabytes
+      imageCache.refreshDiskUsage()
+    }
+    .confirmationDialog(
+      "settings.clearCache.title",
+      isPresented: $isConfirmingCacheClear,
+      titleVisibility: .visible
+    ) {
+      Button("settings.clearCache", role: .destructive) {
+        imageCache.clear()
       }
-
-      Spacer()
-
-      Text("brew install steamcmd")
-        .font(.system(.caption, design: .monospaced))
-        .textSelection(.enabled)
-
-      Button {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("brew install steamcmd", forType: .string)
-        copiedInstallCommand = true
-      } label: {
-        Image(systemName: copiedInstallCommand ? "checkmark" : "doc.on.doc")
-      }
-      .help("steamcmd.copyInstallCommand")
-    }
-    .padding(12)
-    .background(
-      .quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-  }
-
-  private func saveAPIKey() {
-    do {
-      try CredentialStore.shared.saveAPIKey(apiKey)
-      apiKeyMessage = "settings.apiKey.saved"
-      apiKeySaved = true
-    } catch {
-      apiKeyMessage = error.localizedDescription
-      apiKeySaved = false
-    }
-  }
-
-  private func removeAPIKey() {
-    do {
-      try CredentialStore.shared.deleteAPIKey()
-      apiKey = ""
-      apiKeyMessage = "settings.apiKey.removed"
-      apiKeySaved = true
-    } catch {
-      apiKeyMessage = error.localizedDescription
-      apiKeySaved = false
-    }
-  }
-
-  private func chooseSteamCMD() {
-    let panel = NSOpenPanel()
-    panel.title = "steamcmd.choose.title"
-    panel.message = "steamcmd.choose.message"
-    panel.canChooseFiles = true
-    panel.canChooseDirectories = false
-    panel.allowsMultipleSelection = false
-    if panel.runModal() == .OK, let url = panel.url {
-      steamCMD.setCustomPath(url.path)
+      Button("common.cancel", role: .cancel) {}
+    } message: {
+      Text("settings.clearCache.message")
     }
   }
 
