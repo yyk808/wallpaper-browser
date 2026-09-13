@@ -131,6 +131,17 @@ Offline checks cover URL parsing, legacy download metadata compatibility, favori
 
 Online checks cover search, author works and profiles, item details, reverse collection lookup, and batched collection-member reads. They are read-only: no content is downloaded and no Steam account state is modified.
 
+## Continuous integration and releases
+
+GitHub Actions runs the offline checks and a macOS Debug build for pushes to `main`, pull requests, and manual CI runs. Pushing a semantic version tag builds the unsigned Universal package and publishes it as a GitHub Release:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The release workflow does not require Apple Developer credentials. It creates an ad-hoc signed package for local testing; the app is not notarized for Gatekeeper.
+
 ## License
 
 This project is licensed under the [GNU Affero General Public License v3.0](LICENSE), SPDX identifier `AGPL-3.0-only`.

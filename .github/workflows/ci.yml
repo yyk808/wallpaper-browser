@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-26
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Show toolchain
+        run: xcodebuild -version
+
+      - name: Run offline checks
+        run: |
+          ./scripts/check-browse-jump.sh
+          ./scripts/check-workshop-api.sh
+
+      - name: Build Debug app
+        run: |
+          xcodebuild \
+            -project wallpaper-browser.xcodeproj \
+            -scheme wallpaper-browser \
+            -configuration Debug \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build

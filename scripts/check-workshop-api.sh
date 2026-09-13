@@ -8,6 +8,7 @@ swiftc -parse-as-library -swift-version 5 \
   "$project_root/wallpaper-browser/Models/WorkshopDiscovery.swift" \
   "$project_root/wallpaper-browser/Models/FavoriteLibrary.swift" \
   "$project_root/wallpaper-browser/Services/WorkshopDownloadRecovery.swift" \
+  "$project_root/wallpaper-browser/Services/VideoPlaybackCompatibility.swift" \
   "$project_root/wallpaper-browser/Services/VideoExtractor.swift" \
   "$project_root/wallpaper-browser/Services/CredentialStore.swift" \
   "$project_root/wallpaper-browser/Services/WorkshopAPIClient.swift" \
